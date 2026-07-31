@@ -2535,6 +2535,21 @@ function aiPushObject(pushable, dc, dr) {
   return false;
 }
 
+function aiPushHarry(fd) {
+  // AI-only version of pushing Harry one cell (no lifting logic)
+  const nc = harry.c + fd.c;
+  const nr = harry.r + fd.r;
+  const nl = harry.l;
+  if (!canHarryEnter(nc, nr, nl)) return false;
+  harry.c = nc; harry.r = nr;
+  settleHarry();
+  if (harry.l === SKY && !harry.fallen) {
+    harry.fallen = false;
+    showMessage('Harry is back on solid ground!');
+  }
+  return true;
+}
+
 function updateAIWombat(dt) {
   if (!aiWombat.mesh) return;
 
@@ -2556,6 +2571,12 @@ function updateAIWombat(dt) {
 
   switch (aiWombat.state) {
     case 'idle': {
+      // Rare dark quirk: push Harry into a hole and bury him
+      if (Math.random() < 0.06 && harry.state === 'present' && !harry.fallen) {
+        aiWombat.mischiefSteps = 0;
+        aiWombat.state = 'harryMischief';
+        break;
+      }
       // Random quirk: sometimes try to push rocks/dirt/poop into player-dug holes
       if (Math.random() < 0.3) {
         const holes = findSurfaceHoles();
@@ -2617,6 +2638,65 @@ function updateAIWombat(dt) {
       // No pushable object in a useful direction; inch closer to the hole
       const moved = aiMoveToward(aiWombat, aiWombat.targetHole.c, aiWombat.targetHole.r);
       if (!moved) aiWombat.state = 'idle';
+      break;
+    }
+
+    case 'harryMischief': {
+      if (aiWombat.mischiefSteps > 12 || harry.state !== 'present') {
+        aiWombat.state = 'idle';
+        break;
+      }
+      aiWombat.mischiefSteps++;
+
+      if (harry.fallen) {
+        // Harry is in a hole; try to drop a rock/dirt/poop on top of him
+        let buried = false;
+        for (let i = 0; i < FACING_DIRS.length; i++) {
+          const d = FACING_DIRS[i];
+          const pushable = pushableAt(aiWombat.c + d.c, aiWombat.r + d.r, aiWombat.l);
+          if (!pushable) continue;
+          if (pushable.obj.c + d.c === harry.c && pushable.obj.r + d.r === harry.r) {
+            if (aiPushObject(pushable, d.c, d.r)) {
+              aiWombat.facing = i;
+              buried = true;
+              showMessage('The AI wombat buried Harry!');
+              sfx('dig');
+              break;
+            }
+          }
+        }
+        if (buried) {
+          aiWombat.state = 'idle';
+          break;
+        }
+        // Move closer to Harry to find something to drop on him
+        aiMoveToward(aiWombat, harry.c, harry.r);
+        break;
+      }
+
+      // Try to push Harry into an adjacent hole
+      let pushed = false;
+      for (let i = 0; i < FACING_DIRS.length; i++) {
+        const d = FACING_DIRS[i];
+        if (aiWombat.c + d.c === harry.c && aiWombat.r + d.r === harry.r) {
+          const hc = harry.c + d.c, hr = harry.r + d.r;
+          if (hc >= 0 && hc < COLS && hr >= 0 && hr < ROWS && tileAt(hc, hr, harry.l) === AIR) {
+            if (aiPushHarry(d)) {
+              aiWombat.facing = i;
+              pushed = true;
+              showMessage('The AI wombat pushed Harry into a hole!');
+              sfx('hit');
+              break;
+            }
+          }
+        }
+      }
+
+      if (!pushed) {
+        // Position behind Harry relative to a nearby hole, or just chase him
+        const moved = aiMoveToward(aiWombat, harry.c, harry.r);
+        if (!moved) aiWombat.state = 'idle';
+      }
       break;
     }
 
