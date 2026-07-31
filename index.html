@@ -1193,15 +1193,24 @@ function initLevel(idx) {
     }
   }
 
-  // Items: some stuck in tree branches, the rest buried underground
+  // Items: BopList items plus decoy duplicates; some go in trees, rest underground
+  const itemSpawns = cfg.items.slice();
+  cfg.items.forEach(type => {
+    if (Math.random() < 0.4) itemSpawns.push(type);
+  });
+  itemSpawns.sort(() => Math.random() - 0.5);
+
   const availableTrees = trees.slice();
-  const shuffledTypes = cfg.items.slice().sort(() => Math.random() - 0.5);
-  const maxTreeItems = Math.min(2, shuffledTypes.length, availableTrees.length);
-  const treeItemTypes = new Set(shuffledTypes.slice(0, maxTreeItems));
-  cfg.items.forEach((type, idx) => {
+  const treeIndices = new Set();
+  const maxTreeItems = Math.min(2, itemSpawns.length, availableTrees.length);
+  while (treeIndices.size < maxTreeItems) {
+    treeIndices.add(randInt(0, itemSpawns.length - 1));
+  }
+
+  itemSpawns.forEach((type, idx) => {
     let c, r, l, inTree = false, attempts = 0;
     let treeOffset = null;
-    if (treeItemTypes.has(type) && availableTrees.length > 0) {
+    if (treeIndices.has(idx) && availableTrees.length > 0) {
       const treeIdx = availableTrees.length === 1 ? 0 : randInt(0, availableTrees.length - 1);
       const tree = availableTrees.splice(treeIdx, 1)[0];
       tree.itemType = type;
@@ -1231,7 +1240,7 @@ function initLevel(idx) {
       mesh.visible = false;
     }
     scene.add(mesh);
-    items.push({ type, c, r, l, mesh, found: inTree, stolen: false, delivered: false, onCube: false, under: null, inPouch: false, inTree, treeOffset, halfHeight: 0.7 });
+    items.push({ type, c, r, l, mesh, found: inTree, stolen: false, delivered: false, onCube: false, under: null, inPouch: false, inTree, treeOffset, refuseCooldown: 0, halfHeight: 0.7 });
   });
 
   // Boulders: 2x2 immovable obstacles on surface or underground
@@ -2042,14 +2051,30 @@ function updateWombat(dt) {
 
 function deliverItem(item) {
   if (item.delivered) return;
+  const bop = boplist.find(b => b.type === item.type && !b.done);
+  if (!bop) {
+    // Harry already has one of these; he refuses the duplicate
+    item.refuseCooldown = 180;
+    item.found = true;
+    item.inPouch = false;
+    item.mesh.visible = true;
+    if (carriedItem === item) carriedItem = null;
+    if (pouchItem === item) pouchItem = null;
+    // Drop it at the wombat's feet so it is no longer "delivered" to Harry
+    item.c = wombat.c; item.r = wombat.r; item.l = wombat.l;
+    item.onCube = false; item.under = null;
+    setItemPosition(item);
+    sfx('hit');
+    showMessage('Harry says: "No thanks, I already have a ' + ITEM_CATALOG[item.type].name + '!"');
+    return;
+  }
   item.delivered = true;
   item.found = true;
   item.inPouch = false;
   item.mesh.visible = false;
   if (carriedItem === item) carriedItem = null;
   if (pouchItem === item) pouchItem = null;
-  const bop = boplist.find(b => b.type === item.type && !b.done);
-  if (bop) bop.done = true;
+  bop.done = true;
   score += 100;
   sfx('check');
   showMessage('Harry checks off ' + ITEM_CATALOG[item.type].name + '!');
@@ -2063,7 +2088,7 @@ function deliverItem(item) {
 function checkDeliveries() {
   if (harry.fallen || harry.state === 'absent') return;
   for (const item of items) {
-    if (!item.found || item.delivered || item.stolen || item.inTree) continue;
+    if (!item.found || item.delivered || item.stolen || item.inTree || item.refuseCooldown > 0) continue;
     if (item.l !== SURFACE) continue;
     const isHeld = (item === carriedItem || item === pouchItem);
     const c = isHeld ? wombat.c : item.c;
@@ -2358,6 +2383,9 @@ function itemUnderIsPresent(item) {
 
 function updateItems() {
   // Items left on the ground fall if support is removed, then roll down ramps
+  for (const item of items) {
+    if (item.refuseCooldown > 0) item.refuseCooldown--;
+  }
   let moved = true;
   let iterations = 0;
   while (moved && iterations < LAYERS) {
