@@ -43,12 +43,12 @@
       pointer-events: auto;
       max-width: 320px;
     }
-    .panel h3 { margin: 0 0 6px; font-size: 0.75rem; color: var(--accent); text-transform: uppercase; }
-    #boplist { display: flex; flex-wrap: wrap; gap: 4px; }
+    .panel h3 { margin: 0 0 6px; font-size: 0.85rem; color: var(--accent); text-transform: uppercase; }
+    #boplist { display: flex; flex-wrap: wrap; gap: 6px; }
     .bop-item {
-      font-size: 0.7rem;
+      font-size: 0.9rem;
       background: #3a2e20;
-      padding: 2px 5px;
+      padding: 3px 7px;
       border-radius: 4px;
       border: 1px solid #5a4a32;
     }
@@ -202,9 +202,9 @@ window.addEventListener('unhandledrejection', e => showError('UNHANDLED: ' + (e.
    ============================================================ */
 
 const BLOCK = 2.5;
-const COLS = 14;
-const ROWS = 10;
-const LAYERS = 6;
+const COLS = 22;
+const ROWS = 16;
+const LAYERS = 8;
 const SKY = 0;
 const SURFACE = 1;
 const BEDROCK_LAYER = LAYERS - 1;
@@ -256,8 +256,8 @@ const keys = {};
 let mouseDown = false;
 let mouseX = 0, mouseY = 0;
 let cameraAngle = 0.8;
-let cameraHeight = 18;
-let cameraDistance = 32;
+let cameraHeight = 28;
+let cameraDistance = 50;
 
 const ITEM_CATALOG = {
   computer:  { name: 'Old Computer',     icon: '🖥️', color: '#c0c0c0' },
@@ -485,8 +485,13 @@ function initThree() {
     updateCamera();
 
     window.addEventListener('resize', onResize);
-    document.addEventListener('keydown', e => { keys[e.key] = true; handleKey(e.key); });
-    document.addEventListener('keyup', e => keys[e.key] = false);
+    document.addEventListener('keydown', e => {
+      const gameKeys = ['w','a','s','d','W','A','S','D','i','I','k','K',' ','Shift','PageUp','PageDown','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','e','E','q','Q','r','R','p','P'];
+      if (gameKeys.includes(e.key)) e.preventDefault();
+      keys[e.key] = true;
+      handleKey(e.key);
+    });
+    document.addEventListener('keyup', e => { keys[e.key] = false; });
     renderer.domElement.addEventListener('mousedown', e => { mouseDown = true; mouseX = e.clientX; mouseY = e.clientY; });
     window.addEventListener('mouseup', () => mouseDown = false);
     window.addEventListener('mousemove', e => {
@@ -494,13 +499,13 @@ function initThree() {
       const dx = e.clientX - mouseX;
       const dy = e.clientY - mouseY;
       cameraAngle -= dx * 0.008;
-      cameraHeight = clamp(cameraHeight + dy * 0.1, 5, 40);
+      cameraHeight = clamp(cameraHeight + dy * 0.1, 8, 60);
       mouseX = e.clientX;
       mouseY = e.clientY;
       updateCamera();
     });
     renderer.domElement.addEventListener('wheel', e => {
-      cameraDistance = clamp(cameraDistance + e.deltaY * 0.02, 15, 60);
+      cameraDistance = clamp(cameraDistance + e.deltaY * 0.02, 20, 90);
       updateCamera();
     });
 
@@ -756,31 +761,77 @@ function makeHarry() {
   const pantMat = new THREE.MeshStandardMaterial({ color: 0x3e4a5e, roughness: 0.8 });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.8 });
 
-  // Body
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 2.2, 16), shirtMat);
-  body.position.y = 1.7;
+  // Rounded torso
+  const torsoGeo = new THREE.CylinderGeometry(0.62, 0.78, 2.0, 18);
+  const body = new THREE.Mesh(torsoGeo, shirtMat);
+  body.position.y = 1.85;
   body.castShadow = true;
   group.add(body);
 
+  // Shirt collar
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.06, 8, 18), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+  collar.position.set(0, 2.82, 0);
+  collar.rotation.x = Math.PI / 2;
+  group.add(collar);
+
+  // Neck
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.45, 12), skinMat);
+  neck.position.y = 3.05;
+  group.add(neck);
+
   // Head
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.65, 24, 24), skinMat);
-  head.position.y = 3.2;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.58, 24, 24), skinMat);
+  head.position.y = 3.45;
+  head.scale.set(1, 1.05, 1);
   head.castShadow = true;
   group.add(head);
 
-  // Hair
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.68, 24, 24, 0, Math.PI * 2, 0, Math.PI / 2.2), whiteMat);
-  hair.position.y = 3.25;
-  group.add(hair);
+  // Ears
+  for (const ex of [-0.55, 0.55]) {
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), skinMat);
+    ear.position.set(ex, 3.45, 0);
+    group.add(ear);
+  }
+
+  // Nose
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), new THREE.MeshStandardMaterial({ color: 0xeac0a0, roughness: 0.6 }));
+  nose.position.set(0, 3.42, 0.55);
+  group.add(nose);
+
+  // White hair — sculpted clumps around the back and sides
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2;
+    const rx = Math.cos(angle) * 0.52;
+    const rz = Math.sin(angle) * 0.48;
+    const clump = new THREE.Mesh(new THREE.SphereGeometry(0.16 + Math.random() * 0.06, 10, 10), whiteMat);
+    clump.position.set(rx, 3.75 + Math.random() * 0.12, rz * 0.7 - 0.05);
+    group.add(clump);
+  }
+  // Sideburns
+  for (const ex of [-0.45, 0.45]) {
+    const sideburnGroup = new THREE.Group();
+    const sideburnCore = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.35, 8), whiteMat);
+    sideburnCore.position.y = 0;
+    sideburnGroup.add(sideburnCore);
+    const sideburnTop = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), whiteMat);
+    sideburnTop.position.y = 0.175;
+    sideburnGroup.add(sideburnTop);
+    const sideburnBot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), whiteMat);
+    sideburnBot.position.y = -0.175;
+    sideburnGroup.add(sideburnBot);
+    sideburnGroup.position.set(ex, 3.55, 0.15);
+    group.add(sideburnGroup);
+  }
 
   // Flat cap
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.18, 24), new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.8 }));
-  cap.position.y = 3.72;
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.16, 24), capMat);
+  cap.position.y = 3.95;
   cap.castShadow = true;
   group.add(cap);
-  const capBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.78, 0.06, 24), new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.8 }));
-  capBrim.position.set(0, 3.62, 0.18);
+  const capBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.05, 24), capMat);
+  capBrim.position.set(0, 3.86, 0.15);
   capBrim.scale.set(1, 1, 0.75);
   capBrim.castShadow = true;
   group.add(capBrim);
@@ -788,82 +839,94 @@ function makeHarry() {
   // Round glasses
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.4, metalness: 0.3 });
   const lensMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, roughness: 0.1 });
-  for (const ex of [-0.18, 0.18]) {
-    const frame = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.025, 8, 16), frameMat);
-    frame.position.set(ex, 3.3, 0.58);
+  for (const ex of [-0.17, 0.17]) {
+    const frame = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.022, 8, 16), frameMat);
+    frame.position.set(ex, 3.52, 0.53);
     frame.rotation.y = 0.05 * Math.sign(ex);
     group.add(frame);
-    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.12, 16), lensMat);
-    lens.position.set(ex, 3.3, 0.61);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.11, 16), lensMat);
+    lens.position.set(ex, 3.52, 0.56);
     lens.rotation.y = 0.05 * Math.sign(ex);
     group.add(lens);
   }
-  const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.18, 8), frameMat);
+  const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.16, 8), frameMat);
   bridge.rotation.z = Math.PI / 2;
-  bridge.position.set(0, 3.3, 0.6);
+  bridge.position.set(0, 3.52, 0.55);
   group.add(bridge);
 
   // Mustache
-  const stache = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 8), whiteMat);
+  const stache = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 8), whiteMat);
   stache.rotation.z = Math.PI / 2;
-  stache.position.set(0, 3.0, 0.6);
+  stache.position.set(0, 3.22, 0.56);
   group.add(stache);
 
   // Eyes
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-  for (const ex of [-0.18, 0.18]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), eyeMat);
-    eye.position.set(ex, 3.32, 0.55);
+  for (const ex of [-0.17, 0.17]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat);
+    eye.position.set(ex, 3.55, 0.5);
     group.add(eye);
   }
 
-  // Arms
-  const armGeo = new THREE.CylinderGeometry(0.18, 0.16, 1.4, 12);
+  // Arms and hands
+  const armGeo = new THREE.CylinderGeometry(0.15, 0.14, 1.35, 12);
+  const handGeo = new THREE.SphereGeometry(0.14, 10, 10);
   const leftArm = new THREE.Mesh(armGeo, shirtMat);
-  leftArm.position.set(-0.85, 1.8, 0.2);
-  leftArm.rotation.z = 0.3;
+  leftArm.position.set(-0.78, 1.95, 0.15);
+  leftArm.rotation.z = 0.25;
+  leftArm.castShadow = true;
   group.add(leftArm);
+  const leftHand = new THREE.Mesh(handGeo, skinMat);
+  leftHand.position.set(-0.92, 1.25, 0.15);
+  group.add(leftHand);
+
   const rightArm = new THREE.Mesh(armGeo, shirtMat);
-  rightArm.position.set(0.85, 1.8, 0.2);
-  rightArm.rotation.z = -0.3;
+  rightArm.position.set(0.78, 1.95, 0.15);
+  rightArm.rotation.z = -0.25;
+  rightArm.castShadow = true;
   group.add(rightArm);
+  const rightHand = new THREE.Mesh(handGeo, skinMat);
+  rightHand.position.set(0.92, 1.25, 0.15);
+  group.add(rightHand);
 
   // Cane in right hand
-  const caneShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 3.0, 8), woodMat);
-  caneShaft.position.set(1.0, 1.5, 0.5);
+  const caneShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.8, 8), woodMat);
+  caneShaft.position.set(1.05, 1.4, 0.45);
   caneShaft.rotation.x = 0.1;
   caneShaft.castShadow = true;
   group.add(caneShaft);
-  const caneHandle = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 8, 16), woodMat);
-  caneHandle.position.set(1.0, 3.0, 0.5);
+  const caneHandle = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.035, 8, 16), woodMat);
+  caneHandle.position.set(1.05, 2.8, 0.45);
   caneHandle.rotation.y = Math.PI / 2;
   group.add(caneHandle);
 
-  // Boplist scroll
-  const scroll = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.1, 0.08), new THREE.MeshStandardMaterial({ color: 0xfff8dc }));
-  scroll.position.set(0.9, 2.2, 0.5);
+  // Boplist scroll in left hand
+  const scroll = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.0, 0.07), new THREE.MeshStandardMaterial({ color: 0xfff8dc }));
+  scroll.position.set(-0.95, 1.55, 0.4);
   scroll.rotation.x = -0.3;
   scroll.rotation.y = 0.2;
   group.add(scroll);
 
   // Legs
-  const legGeo = new THREE.CylinderGeometry(0.22, 0.2, 1.3, 12);
-  for (const lx of [-0.35, 0.35]) {
+  const legGeo = new THREE.CylinderGeometry(0.2, 0.18, 1.25, 12);
+  for (const lx of [-0.32, 0.32]) {
     const leg = new THREE.Mesh(legGeo, pantMat);
-    leg.position.set(lx, 0.65, 0);
+    leg.position.set(lx, 0.62, 0);
+    leg.castShadow = true;
     group.add(leg);
   }
 
   // Shoes
-  const shoeGeo = new THREE.BoxGeometry(0.4, 0.2, 0.7);
+  const shoeGeo = new THREE.BoxGeometry(0.38, 0.18, 0.65);
   const shoeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
-  for (const sx of [-0.35, 0.35]) {
+  for (const sx of [-0.32, 0.32]) {
     const shoe = new THREE.Mesh(shoeGeo, shoeMat);
-    shoe.position.set(sx, 0.1, 0.15);
+    shoe.position.set(sx, 0.09, 0.12);
+    shoe.castShadow = true;
     group.add(shoe);
   }
 
-  group.scale.set(1.4, 1.4, 1.4);
+  group.scale.set(1.45, 1.45, 1.45);
   return group;
 }
 
@@ -1014,41 +1077,89 @@ function createTreeMesh(height) {
     new THREE.MeshStandardMaterial({ color: 0x254a20, roughness: 0.9 })
   ];
 
-  // Trunk
+  // Gnarled trunk built from stacked, slightly offset segments
   const trunkH = treeHeight * 0.42;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.18, radius * 0.45, trunkH, 12), trunkMat);
-  trunk.position.y = trunkH / 2;
-  trunk.castShadow = true;
-  trunk.receiveShadow = true;
-  group.add(trunk);
+  const segments = 4 + Math.floor(Math.random() * 2);
+  const segH = trunkH / segments;
+  let currentY = 0;
+  let currentX = 0;
+  let currentZ = 0;
+  let leanX = (Math.random() - 0.5) * 0.08;
+  let leanZ = (Math.random() - 0.5) * 0.08;
+  for (let i = 0; i < segments; i++) {
+    const t = i / segments;
+    const rBottom = radius * (0.42 - t * 0.28);
+    const rTop = radius * (0.42 - (t + 1) / segments * 0.28);
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBottom, segH, 12), trunkMat);
+    seg.position.set(currentX, currentY + segH / 2, currentZ);
+    seg.rotation.x = leanZ;
+    seg.rotation.z = -leanX;
+    seg.castShadow = true;
+    seg.receiveShadow = true;
+    group.add(seg);
+
+    // Random bark knots/bumps
+    if (Math.random() > 0.5) {
+      const knot = new THREE.Mesh(new THREE.SphereGeometry(rBottom * 0.35, 8, 8), trunkMat);
+      const knotAngle = Math.random() * Math.PI * 2;
+      knot.position.set(
+        currentX + Math.cos(knotAngle) * rBottom * 0.9,
+        currentY + segH * 0.5,
+        currentZ + Math.sin(knotAngle) * rBottom * 0.9
+      );
+      group.add(knot);
+    }
+
+    currentY += segH * Math.cos(leanX) * Math.cos(leanZ);
+    currentX += segH * Math.sin(leanZ);
+    currentZ -= segH * Math.sin(leanX);
+    leanX += (Math.random() - 0.5) * 0.06;
+    leanZ += (Math.random() - 0.5) * 0.06;
+  }
 
   // Exposed roots
-  const rootCount = 4 + Math.floor(Math.random() * 3);
+  const rootCount = 5 + Math.floor(Math.random() * 3);
   for (let i = 0; i < rootCount; i++) {
     const rootGroup = new THREE.Group();
     rootGroup.position.y = trunkH * 0.02;
     rootGroup.rotation.y = (i / rootCount) * Math.PI * 2 + Math.random() * 0.3;
-    rootGroup.rotation.z = Math.PI / 8;
-    const root = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.08, radius * 0.18, trunkH * 0.25, 6), trunkMat);
-    root.position.y = trunkH * 0.12;
+    rootGroup.rotation.z = Math.PI / 7 + Math.random() * 0.1;
+    const rootLen = trunkH * (0.22 + Math.random() * 0.08);
+    const root = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.06, radius * 0.2, rootLen, 6), trunkMat);
+    root.position.y = rootLen * 0.45;
     root.castShadow = true;
     rootGroup.add(root);
     group.add(rootGroup);
   }
 
   // Branches and foliage clusters at several heights
-  const levels = 3 + Math.floor(Math.random() * 2);
+  const levels = 3 + Math.floor(Math.random() * 3);
   for (let i = 0; i < levels; i++) {
-    const y = trunkH * (0.35 + i * 0.18);
-    const startRadius = radius * 0.14 * (1 - (y / trunkH) * 0.5);
-    const branches = 2 + Math.floor(Math.random() * 2);
+    const y = trunkH * (0.32 + i * 0.16);
+    const startRadius = radius * 0.13 * (1 - (y / trunkH) * 0.5);
+    const branches = 2 + Math.floor(Math.random() * 3);
     for (let b = 0; b < branches; b++) {
-      addBranch(group, 0, y, 0, startRadius, radius, treeHeight, leafMats, 0, b, branches, attachPoints);
+      addBranch(group, currentX, y, currentZ, startRadius, radius, treeHeight, leafMats, 0, b, branches, attachPoints);
     }
   }
 
+  // Occasional dead/leafless branch
+  if (Math.random() > 0.6) {
+    const deadY = trunkH * (0.5 + Math.random() * 0.25);
+    const deadGroup = new THREE.Group();
+    deadGroup.position.set(currentX, deadY, currentZ);
+    deadGroup.rotation.y = Math.random() * Math.PI * 2;
+    deadGroup.rotation.z = -(Math.PI / 5 + Math.random() * 0.3);
+    const deadLen = treeHeight * (0.15 + Math.random() * 0.1);
+    const deadBranch = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.04, radius * 0.1, deadLen, 6), new THREE.MeshStandardMaterial({ color: 0x4a352a, roughness: 1.0 }));
+    deadBranch.position.y = deadLen / 2;
+    deadBranch.castShadow = true;
+    deadGroup.add(deadBranch);
+    group.add(deadGroup);
+  }
+
   // Top cluster
-  addLeafCluster(group, 0, trunkH * 0.92, 0, radius * 0.55, leafMats);
+  addLeafCluster(group, currentX, trunkH * 0.92, currentZ, radius * 0.6, leafMats);
 
   return { group, attachPoints };
 }
@@ -1162,10 +1273,10 @@ function initLevel(idx) {
   }
 
   // Trees on random grass cells (not in starting area)
-  // Big trees: 3–5 blocks tall, base diameter == height, so they occupy a circular footprint
-  const treeCount = randInt(2, 4);
+  // Big trees: 3–7 blocks tall, base diameter == height, so they occupy a circular footprint
+  const treeCount = randInt(5, 9);
   for (let i = 0; i < treeCount; i++) {
-    const height = randInt(3, 5);
+    const height = randInt(3, 7);
     const radius = height / 2;
     let c, r, attempts = 0;
     let fits = false;
@@ -1604,9 +1715,9 @@ function canHarryEnter(c, r, l) {
   return true;
 }
 function canHarryWanderTo(c, r, l) {
-  // Wandering Harry is blocked by dirt-cube walls, poop walls, and trees, but will stumble into holes.
+  // Harry wanders horizontally at his current layer. He can walk onto dirt-cube ramps,
+  // but cannot climb up a full block on his own.
   if (!canHarryEnter(c, r, l)) return false;
-  if (dirtCubeAt(c, r, l)) return false;
   if (treeAt(c, r, l)) return false;
   return true;
 }
@@ -1729,6 +1840,12 @@ function tryMove() {
       }
       const t = tileAt(wombat.c, wombat.r, targetL);
       if (t === DIRT) {
+        // When digging down from the surface, remove the grass block too so a hole is visible
+        if (wombat.l === SURFACE && tileAt(wombat.c, wombat.r, SURFACE) === DIRT) {
+          setTile(wombat.c, wombat.r, SURFACE, AIR);
+          removeBlockMesh(wombat.c, wombat.r, SURFACE);
+          checkHarryFall(wombat.c, wombat.r, SURFACE);
+        }
         digAndDisplace(wombat.c, wombat.r, targetL, 0, 0, 1, 0xa07040);
       } else if (isPassable(wombat.c, wombat.r, targetL)) {
         moveWombatTo(wombat.c, wombat.r, targetL);
@@ -2113,12 +2230,8 @@ function updateHarry(dt) {
     harry.group.position.z += (worldZ(harry.r) - harry.group.position.z) * 0.15;
   }
 
-  if (harry.fallen) {
-    document.getElementById('harryStatus').textContent = 'Harry fell in! Push him back to the surface.';
-    return;
-  }
-
-  // Harry wanders around in the sky when he's present — falls through holes
+  // Harry wanders around horizontally when present. If he has fallen, he can still
+  // wander on the same layer (and on dirt-cube ramps) but cannot climb out on his own.
   if (harry.state === 'present') {
     harry.moveTimer--;
     if (harry.moveTimer <= 0) {
@@ -2132,6 +2245,10 @@ function updateHarry(dt) {
       }
       harry.moveTimer = randInt(120, 240);
     }
+  }
+
+  if (harry.fallen) {
+    document.getElementById('harryStatus').textContent = 'Harry fell in! Push him back to the surface.';
   }
 
   // Leave/return cycle (only if the level says Harry wanders off)
@@ -2424,7 +2541,7 @@ function updateItems() {
     }
   }
   for (const item of items) {
-    if (item.delivered || item.stolen || item === carriedItem || item === pouchItem) continue;
+    if (item.delivered || item.stolen || item === carriedItem || item === pouchItem || item.inTree) continue;
     setItemPosition(item);
   }
 }
@@ -2691,7 +2808,33 @@ function updateAIWombat(dt) {
         break;
       }
 
-      // Try to push Harry into an adjacent hole
+      // Find the nearest hole and try to position behind Harry to push him in
+      const holes = findSurfaceHoles();
+      if (holes.length === 0) {
+        aiWombat.state = 'idle';
+        break;
+      }
+      const hole = holes.reduce((best, h) => {
+        const da = Math.abs(h.c - harry.c) + Math.abs(h.r - harry.r);
+        const db = Math.abs(best.c - harry.c) + Math.abs(best.r - harry.r);
+        return da < db ? h : best;
+      }, holes[0]);
+      const dx = Math.sign(harry.c - hole.c);
+      const dz = Math.sign(harry.r - hole.r);
+      const targetC = harry.c + dx;
+      const targetR = harry.r + dz;
+
+      // If already lined up behind Harry, push him toward the hole
+      if (aiWombat.c === targetC && aiWombat.r === targetR && (dx !== 0 || dz !== 0)) {
+        if (aiPushHarry({ c: -dx, r: -dz, l: 0 })) {
+          showMessage('The AI wombat pushed Harry toward a hole!');
+          sfx('hit');
+        }
+        aiWombat.state = 'idle';
+        break;
+      }
+
+      // Fallback: if adjacent to Harry and a hole is on the far side, push anyway
       let pushed = false;
       for (let i = 0; i < FACING_DIRS.length; i++) {
         const d = FACING_DIRS[i];
@@ -2710,8 +2853,8 @@ function updateAIWombat(dt) {
       }
 
       if (!pushed) {
-        // Position behind Harry relative to a nearby hole, or just chase him
-        const moved = aiMoveToward(aiWombat, harry.c, harry.r);
+        // Move to the cell behind Harry relative to the hole
+        const moved = aiMoveToward(aiWombat, targetC, targetR);
         if (!moved) aiWombat.state = 'idle';
       }
       break;
