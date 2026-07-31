@@ -138,10 +138,10 @@
     </div>
     <div class="panel">
       <h3>Controls</h3>
-      <div class="ability"><span class="key">W / Up</span><span class="name">North</span></div>
-      <div class="ability"><span class="key">S / Down</span><span class="name">South</span></div>
-      <div class="ability"><span class="key">A / Left</span><span class="name">West</span></div>
-      <div class="ability"><span class="key">D / Right</span><span class="name">East</span></div>
+      <div class="ability"><span class="key">W / Up</span><span class="name">Forward (screen-up)</span></div>
+      <div class="ability"><span class="key">S / Down</span><span class="name">Backward (screen-down)</span></div>
+      <div class="ability"><span class="key">A / Left</span><span class="name">Left (screen-left)</span></div>
+      <div class="ability"><span class="key">D / Right</span><span class="name">Right (screen-right)</span></div>
       <div class="ability"><span class="key">I / PgUp</span><span class="name">Up a layer</span></div>
       <div class="ability"><span class="key">K / PgDn</span><span class="name">Down a layer</span></div>
       <div class="ability"><span class="key">Space</span><span class="name">Pick up / drop item or cube</span></div>
@@ -182,7 +182,7 @@
       Harry checks each item off his Boplist — but if he wanders off, sneaky animals will steal anything left unattended!
       Push rocks to the surface to build walls, or drop cube-shaped poop walls to block thieves.
     </p>
-    <p><strong>Controls:</strong> WASD or arrows to move/dig • I/K or PgUp/PgDn to change layer • Space to pick up/drop items &amp; dirt cubes • Shift + direction to push objects • E for poop wall • Q for sniff radar • R to call Harry</p>
+    <p><strong>Controls:</strong> WASD or arrows move camera-relative (W is always toward the top of your screen) • I/K or PgUp/PgDn to change layer • Space to pick up/drop items &amp; dirt cubes • Shift + direction to push objects • E for poop wall • Q for sniff radar • R to call Harry</p>
     <p>Drag mouse to rotate camera • Scroll to zoom</p>
     <button id="startBtn">Start Digging</button>
   </div>
@@ -1503,6 +1503,41 @@ document.getElementById('startBtn').addEventListener('click', () => {
 });
 
 // Input
+function getCameraRelativeMove(k) {
+  // Convert WASD/arrows to screen-relative cardinal grid moves.
+  // W/Up = toward top of viewport, D/Right = toward right of viewport, etc.
+  const lower = k.toLowerCase();
+  const isUp    = lower === 'w' || k === 'ArrowUp';
+  const isDown  = lower === 's' || k === 'ArrowDown';
+  const isLeft  = lower === 'a' || k === 'ArrowLeft';
+  const isRight = lower === 'd' || k === 'ArrowRight';
+  if (!isUp && !isDown && !isLeft && !isRight) return null;
+
+  // Camera looks from (sin(a), cos(a)); forward into screen is (-sin(a), -cos(a)) in (x,z)
+  // Right on screen is (cos(a), -sin(a)).
+  const fx = -Math.sin(cameraAngle);
+  const fz = -Math.cos(cameraAngle);
+  const rx =  Math.cos(cameraAngle);
+  const rz = -Math.sin(cameraAngle);
+
+  let vx = 0, vz = 0;
+  if (isUp)    { vx = fx; vz = fz; }
+  else if (isDown)  { vx = -fx; vz = -fz; }
+  else if (isLeft)  { vx = -rx; vz = -rz; }
+  else if (isRight) { vx = rx; vz = rz; }
+
+  // Snap to nearest cardinal grid direction: N=(0,-1), E=(1,0), S=(0,1), W=(-1,0)
+  const north = -vz;
+  const east  =  vx;
+  const south =  vz;
+  const west  = -vx;
+  const best = Math.max(north, east, south, west);
+  if (best === north) return { dc: 0, dr: -1 };
+  if (best === east)  return { dc: 1, dr: 0 };
+  if (best === south) return { dc: 0, dr: 1 };
+  return { dc: -1, dr: 0 };
+}
+
 function handleKey(k) {
   if (state !== 'playing' || wombat.moving) return;
   const lower = k.toLowerCase();
@@ -1519,14 +1554,17 @@ function handleKey(k) {
     return;
   }
 
-  // Absolute-direction controls: WASD moves on the current layer, I/K changes layer
+  // Camera-relative direction controls: WASD/arrows move toward that side of the screen
   let dc = 0, dr = 0, dl = 0;
-  if (lower === 'w' || k === 'ArrowUp') dr = -1;
-  else if (lower === 's' || k === 'ArrowDown') dr = 1;
-  else if (lower === 'a' || k === 'ArrowLeft') dc = -1;
-  else if (lower === 'd' || k === 'ArrowRight') dc = 1;
-  else if (lower === 'i' || k === 'PageUp') dl = -1;
-  else if (lower === 'k' || k === 'PageDown') dl = 1;
+  const camMove = getCameraRelativeMove(k);
+  if (camMove) {
+    dc = camMove.dc;
+    dr = camMove.dr;
+  } else if (lower === 'i' || k === 'PageUp') {
+    dl = -1;
+  } else if (lower === 'k' || k === 'PageDown') {
+    dl = 1;
+  }
 
   if (wombat.l === SKY && dl === -1) dl = 0; // can't go above sky
 
