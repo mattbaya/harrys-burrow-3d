@@ -1557,7 +1557,7 @@ function pickupCube() {
     return;
   }
   carriedCube = cube;
-  scene.remove(cube.mesh);
+  // Keep the mesh in the scene so it can be rendered at the wombat's mouth while carried
   dirtCubes = dirtCubes.filter(c => c !== cube);
   sfx('pickup');
   showMessage('Carrying dirt cube');
@@ -2711,8 +2711,8 @@ function updateAIWombat(dt) {
         aiWombat.state = 'digUnderHarry';
         break;
       }
-      // Random quirk: sometimes try to push rocks/dirt/poop into player-dug holes
-      if (Math.random() < 0.3) {
+      // Random quirk: often try to push rocks/dirt/poop into player-dug holes
+      if (Math.random() < 0.5) {
         const holes = findSurfaceHoles();
         if (holes.length > 0) {
           aiWombat.targetHole = holes.reduce((best, h) => aiDistance(h, aiWombat) < aiDistance(best, aiWombat) ? h : best, holes[0]);
@@ -2747,7 +2747,7 @@ function updateAIWombat(dt) {
       }
       aiWombat.mischiefSteps++;
 
-      // If standing next to a pushable object, shove it toward the hole
+      // Find a pushable object near the hole and push it in (prefer dirt cubes)
       let pushed = false;
       for (let i = 0; i < FACING_DIRS.length; i++) {
         const d = FACING_DIRS[i];
@@ -2769,9 +2769,35 @@ function updateAIWombat(dt) {
         break;
       }
 
-      // No pushable object in a useful direction; inch closer to the hole
-      const moved = aiMoveToward(aiWombat, aiWombat.targetHole.c, aiWombat.targetHole.r);
-      if (!moved) aiWombat.state = 'idle';
+      // No object to push right now; seek the nearest pushable object to this hole
+      const pushables = [];
+      for (const rock of rocks) {
+        if (rock.l === SURFACE || rock.l === SKY) pushables.push({ kind: 'rock', obj: rock });
+      }
+      for (const cube of dirtCubes) {
+        if (cube.l === SURFACE || cube.l === SKY) pushables.push({ kind: 'cube', obj: cube });
+      }
+      for (const wall of poopWalls) {
+        if (wall.l === SURFACE || wall.l === SKY) pushables.push({ kind: 'poop', obj: wall });
+      }
+      if (pushables.length > 0) {
+        // Prefer dirt cubes, then closest to hole
+        pushables.sort((a, b) => {
+          const ka = a.kind === 'cube' ? 0 : 1;
+          const kb = b.kind === 'cube' ? 0 : 1;
+          if (ka !== kb) return ka - kb;
+          const da = Math.abs(a.obj.c - aiWombat.targetHole.c) + Math.abs(a.obj.r - aiWombat.targetHole.r);
+          const db = Math.abs(b.obj.c - aiWombat.targetHole.c) + Math.abs(b.obj.r - aiWombat.targetHole.r);
+          return da - db;
+        });
+        const target = pushables[0].obj;
+        const moved = aiMoveToward(aiWombat, target.c, target.r);
+        if (!moved) aiWombat.state = 'idle';
+      } else {
+        // No pushables left; just wander toward the hole
+        const moved = aiMoveToward(aiWombat, aiWombat.targetHole.c, aiWombat.targetHole.r);
+        if (!moved) aiWombat.state = 'idle';
+      }
       break;
     }
 
