@@ -133,6 +133,10 @@
 
   <div id="ui">
     <div class="panel">
+      <h3>Harry</h3>
+      <div id="harryProjectStatus" style="font-size:0.8rem;">Harry is watching</div>
+    </div>
+    <div class="panel">
       <h3>Boplist</h3>
       <div id="boplist"></div>
     </div>
@@ -145,7 +149,7 @@
       <div class="ability"><span class="key">I / PgUp</span><span class="name">Up a layer</span></div>
       <div class="ability"><span class="key">K / PgDn</span><span class="name">Down a layer</span></div>
       <div class="ability"><span class="key">Space</span><span class="name">Pick up / drop item or cube</span></div>
-      <div class="ability"><span class="key">Shift + direction</span><span class="name">Push object in front</span></div>
+      <div class="ability"><span class="key">Shift + direction</span><span class="name">Push chain of up to 6 objects</span></div>
       <div class="ability"><span class="key">P</span><span class="name">Stash item in pouch / take item out</span></div>
       <div class="ability"><span class="key">E</span><span class="name">Poop wall behind you</span></div>
       <div class="ability"><span class="key">Q</span><span class="name">Sniff radar</span></div>
@@ -172,6 +176,10 @@
       <h3>AI Wombat</h3>
       <div id="aiStatus" style="font-size:0.8rem;">Thinking...</div>
     </div>
+    <div class="panel">
+      <h3>Camera</h3>
+      <button id="followAiBtn" style="font-size:0.75rem; padding:4px 8px; cursor:pointer; border-radius:4px; border:none; background:var(--accent); color:#221a10; font-weight:bold;">Follow AI Wombat</button>
+    </div>
   </div>
 
   <div id="overlay">
@@ -182,13 +190,15 @@
       Harry checks each item off his Boplist — but if he wanders off, sneaky animals will steal anything left unattended!
       Push rocks to the surface to build walls, or drop cube-shaped poop walls to block thieves.
     </p>
-    <p><strong>Controls:</strong> WASD or arrows move camera-relative (W is always toward the top of your screen) • I/K or PgUp/PgDn to change layer • Space to pick up/drop items &amp; dirt cubes • Shift + direction to push objects • E for poop wall • Q for sniff radar • R to call Harry</p>
+    <p><strong>Controls:</strong> WASD or arrows move camera-relative (W is always toward the top of your screen) • I/K or PgUp/PgDn to change layer • Space to pick up/drop items &amp; dirt cubes • Shift + direction to push a chain of up to 6 objects • E for poop wall • Q for sniff radar • R to call Harry • Use the Camera panel to follow the AI wombat</p>
     <p>Drag mouse to rotate camera • Scroll to zoom</p>
     <button id="startBtn">Start Digging</button>
   </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="lib/STLLoader.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/examples/js/loaders/OBJLoader.js"></script>
 <script>
 function showError(msg) {
   const box = document.getElementById('errorBox');
@@ -208,7 +218,7 @@ window.addEventListener('unhandledrejection', e => showError('UNHANDLED: ' + (e.
 const BLOCK = 2.5;
 const COLS = 22;
 const ROWS = 16;
-const LAYERS = 8;
+const LAYERS = 9;
 const SKY = 0;
 const SURFACE = 1;
 const BEDROCK_LAYER = LAYERS - 1;
@@ -243,8 +253,13 @@ let carriedItem = null;
 let pouchItem = null;
 let carriedCube = null;
 let boplist = [];
+let harryHeadMesh = null;
+let treeModel = null;
+let treeModelLoading = false;
+let treeModelLoaded = false;
 let sniffLine = null;
 let sceneReady = false;
+let cameraTarget = 'player';
 let wombatGeometry = null;
 let wombatBaseScale = 0;
 let wombatWorldHeight = 1.5;
@@ -536,7 +551,14 @@ function initThree() {
 }
 
 function updateCamera() {
-  const target = (wombat.mesh && wombat.mesh.position) ? wombat.mesh.position : new THREE.Vector3(0, 2, 0);
+  let target;
+  if (cameraTarget === 'ai' && aiWombat.mesh && aiWombat.mesh.position) {
+    target = aiWombat.mesh.position;
+  } else if (wombat.mesh && wombat.mesh.position) {
+    target = wombat.mesh.position;
+  } else {
+    target = new THREE.Vector3(0, 2, 0);
+  }
   const cx = target.x + Math.sin(cameraAngle) * cameraDistance;
   const cz = target.z + Math.cos(cameraAngle) * cameraDistance;
   const cy = target.y + cameraHeight;
@@ -664,6 +686,7 @@ function createFallbackWombat() {
 }
 
 function setWombatMesh(mesh) {
+  if (!scene) return;
   if (wombat.mesh) scene.remove(wombat.mesh);
   wombat.mesh = mesh;
   scene.add(wombat.mesh);
@@ -671,6 +694,7 @@ function setWombatMesh(mesh) {
 }
 
 function setAIWombatMesh(mesh) {
+  if (!scene) return;
   const oldPos = aiWombat.mesh ? aiWombat.mesh.position.clone() : null;
   const oldRot = aiWombat.mesh ? aiWombat.mesh.rotation.clone() : null;
   if (aiWombat.mesh) scene.remove(aiWombat.mesh);
@@ -727,15 +751,16 @@ function loadWombat() {
 
   const loader = new THREE.STLLoader();
   loader.load('../../demos/models/wombat.stl', function(geometry) {
+    if (!scene) return;
     clearTimeout(fallbackTimer);
     try {
       geometry.computeBoundingBox();
       const center = new THREE.Vector3();
       geometry.boundingBox.getCenter(center);
       geometry.translate(-center.x, -center.y, -center.z); // center at origin
-      // The STL is Z-up; rotate to lie flat in our Y-up world and face +Z
+      // The STL is Z-up; rotate to lie flat in our Y-up world.
+      // Keep the model facing +Z at rotation.y=0 so FACING_ANGLES point the nose forward.
       geometry.rotateX(-Math.PI / 2);
-      geometry.rotateY(Math.PI);
       geometry.computeBoundingBox();
       const size = new THREE.Vector3();
       geometry.boundingBox.getSize(size);
@@ -800,12 +825,16 @@ function makeHarry() {
   neck.position.y = 3.05;
   group.add(neck);
 
-  // Head
+  // Head (primitive sphere; replaced by OBJ bust when it loads)
+  const headGroup = new THREE.Group();
+  headGroup.position.y = 3.45;
+  group.add(headGroup);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.58, 24, 24), skinMat);
-  head.position.y = 3.45;
+  head.name = 'primitiveHead';
   head.scale.set(1, 1.05, 1);
   head.castShadow = true;
-  group.add(head);
+  headGroup.add(head);
+  loadHarryHead(headGroup);
 
   // Ears
   for (const ex of [-0.55, 0.55]) {
@@ -949,6 +978,40 @@ function makeHarry() {
   return group;
 }
 
+function loadHarryHead(headGroup) {
+  if (!headGroup) return;
+  if (typeof THREE === 'undefined' || typeof THREE.OBJLoader !== 'function') return;
+  const loader = new THREE.OBJLoader();
+  const timeout = setTimeout(() => {
+    showError('Harry head OBJ load timed out; using primitive head.');
+  }, 8000);
+  loader.load('models/harry/man_bust.obj', function(obj) {
+    clearTimeout(timeout);
+    if (!scene || !headGroup) return;
+    obj.traverse(child => {
+      if (child.isMesh) {
+        child.material = new THREE.MeshStandardMaterial({ color: 0xf5cda2, roughness: 0.6 });
+        child.castShadow = true;
+      }
+    });
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const targetHeight = 1.2;
+    const s = (size.y > 0.001) ? targetHeight / size.y : 0.012;
+    obj.scale.set(s, s, s);
+    obj.rotation.y = Math.PI;
+    obj.position.set(0, -0.5, 0);
+    const prim = headGroup.getObjectByName('primitiveHead');
+    if (prim) headGroup.remove(prim);
+    headGroup.add(obj);
+    harryHeadMesh = obj;
+  }, undefined, function(err) {
+    clearTimeout(timeout);
+    showError('Failed to load Harry OBJ: ' + (err && err.message ? err.message : String(err)));
+  });
+}
+
 // Items
 function createItemMesh(type) {
   const info = ITEM_CATALOG[type];
@@ -1012,8 +1075,9 @@ function createDirtCube() {
 }
 
 // Poop wall
-function createPoopWall() {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(BLOCK * 0.25, BLOCK * 0.25, BLOCK * 0.25), new THREE.MeshStandardMaterial({ color: 0x6b4a2a }));
+function createPoopWall(aiOwned = false) {
+  const color = aiOwned ? 0x3b82f6 : 0x6b4a2a;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(BLOCK * 0.25, BLOCK * 0.25, BLOCK * 0.25), new THREE.MeshStandardMaterial({ color }));
   mesh.castShadow = true;
   return mesh;
 }
@@ -1183,6 +1247,63 @@ function createTreeMesh(height) {
   return { group, attachPoints };
 }
 
+function loadTreeModel() {
+  return new Promise((resolve) => {
+    if (treeModelLoaded) { resolve(treeModel); return; }
+    if (treeModelLoading) {
+      const check = setInterval(() => {
+        if (treeModelLoaded) { clearInterval(check); resolve(treeModel); }
+      }, 100);
+      return;
+    }
+    if (typeof THREE === 'undefined' || typeof THREE.GLTFLoader !== 'function') {
+      treeModelLoaded = true; treeModel = null; resolve(null); return;
+    }
+    treeModelLoading = true;
+    const loader = new THREE.GLTFLoader();
+    const timeout = setTimeout(() => {
+      if (!treeModelLoaded) {
+        treeModelLoaded = true; treeModel = null;
+        showError('Tree model load timed out; using procedural trees.');
+        resolve(null);
+      }
+    }, 8000);
+    loader.load('models/tree/tree.gltf', function(gltf) {
+      clearTimeout(timeout);
+      if (!scene) { treeModelLoaded = true; treeModel = null; resolve(null); return; }
+      treeModel = gltf.scene;
+      treeModelLoaded = true;
+      resolve(treeModel);
+    }, undefined, function(err) {
+      clearTimeout(timeout);
+      showError('Failed to load tree GLTF: ' + (err && err.message ? err.message : String(err)));
+      treeModelLoaded = true; treeModel = null; resolve(null);
+    });
+  });
+}
+
+async function createTree(height) {
+  const gltfScene = await loadTreeModel();
+  if (gltfScene && scene) {
+    const group = new THREE.Group();
+    const clone = gltfScene.clone();
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const targetHeight = height * BLOCK;
+    const scale = (size.y > 0.001) ? targetHeight / size.y : 1;
+    clone.scale.set(scale, scale, scale);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    clone.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
+    clone.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    group.add(clone);
+    const attachPoints = [{ x: 0, y: BLOCK * 2.5, z: 0, depth: 0 }];
+    return { group, attachPoints };
+  }
+  return createTreeMesh(height);
+}
+
 // Boulders
 function createBoulderMesh() {
   const geo = new THREE.DodecahedronGeometry(BLOCK * 0.7, 1);
@@ -1213,7 +1334,7 @@ function spawnParticles(c, r, l, color, count=8) {
 
 
 // Level setup
-function initLevel(idx) {
+async function initLevel(idx) {
   if (!scene) {
     showError('initLevel called before scene was ready.');
     return;
@@ -1293,6 +1414,9 @@ function initLevel(idx) {
 
   // Trees on random grass cells (not in starting area)
   // Big trees: 3–7 blocks tall, base diameter == height, so they occupy a circular footprint
+  const loadingEl = document.getElementById('loading');
+  loadingEl.style.display = 'block';
+  loadingEl.textContent = 'Planting trees...';
   const treeCount = randInt(5, 9);
   for (let i = 0; i < treeCount; i++) {
     const height = randInt(3, 7);
@@ -1317,14 +1441,17 @@ function initLevel(idx) {
       }
     } while (!fits && attempts < 200);
     if (fits) {
-      const { group: mesh, attachPoints } = createTreeMesh(height);
+      loadingEl.textContent = 'Planting trees... ' + (i + 1) + '/' + treeCount;
+      const { group: mesh, attachPoints } = await createTree(height);
       // Sit the tree on the floor of the surface layer
       const floorY = worldY(SURFACE) - BLOCK / 2;
       mesh.position.set(worldX(c), floorY, worldZ(r));
+      if (!scene) break;
       scene.add(mesh);
       trees.push({ c, r, l: SURFACE, height, radius, mesh, attachPoints, itemType: null, hasItem: false });
     }
   }
+  loadingEl.style.display = 'none';
 
   // Items: BopList items plus decoy duplicates; some go in trees, rest underground
   const itemSpawns = cfg.items.slice();
@@ -1416,6 +1543,7 @@ function initLevel(idx) {
   }
 
   // Harry
+  if (harry.carrying && harry.group) harry.group.remove(harry.carrying.mesh);
   if (harry.group) scene.remove(harry.group);
   harry.group = makeHarry();
   harry.c = randInt(1, COLS-3);
@@ -1429,6 +1557,12 @@ function initLevel(idx) {
   harry.timer = cfg.harryLeaves ? randInt(8, 15) : Infinity;
   harry.nextLeave = cfg.harryLeaves ? randInt(8, 15) : Infinity;
   harry.moveTimer = randInt(120, 240);
+  harry.project = 'wander';
+  harry.projectTimer = randInt(5, 10);
+  harry.carrying = null;
+  harry.towerC = null; harry.towerR = null;
+  harry.rampDir = null; harry.rampStep = 0;
+  harry.rampStartC = null; harry.rampStartR = null;
 
   // Wombat position
   wombat.c = sc;
@@ -1476,7 +1610,7 @@ function initLevel(idx) {
   showMessage(cfg.name);
 }
 
-function startGame() {
+async function startGame() {
   if (!sceneReady) {
     showError('Game engine did not initialize. Please check the red error messages above.');
     return;
@@ -1484,17 +1618,17 @@ function startGame() {
   try { audioCtx.resume(); } catch(e) {}
   document.getElementById('overlay').classList.add('hidden');
   score = 0;
-  initLevel(0);
+  await initLevel(0);
   state = 'playing';
 }
 
-function nextLevel() {
+async function nextLevel() {
   if (levelIndex + 1 >= LEVELS.length) {
     state = 'win';
     sfx('win');
     showOverlay('You did it!', 'Every item on Harry\'s Boplist is safe in the wheelbarrow. Harry is one happy wombat-herd.', 'Play Again');
   } else {
-    initLevel(levelIndex + 1);
+    await initLevel(levelIndex + 1);
   }
 }
 
@@ -1512,9 +1646,21 @@ function showMessage(text) {
   setTimeout(() => el.classList.remove('show'), 2000);
 }
 
-document.getElementById('startBtn').addEventListener('click', () => {
-  if (state === 'win' || state === 'gameover') startGame();
-  else startGame();
+document.getElementById('startBtn').addEventListener('click', async () => {
+  if (state === 'win' || state === 'gameover') await startGame();
+  else await startGame();
+});
+
+document.getElementById('followAiBtn').addEventListener('click', () => {
+  const btn = document.getElementById('followAiBtn');
+  if (cameraTarget === 'ai') {
+    cameraTarget = 'player';
+    btn.textContent = 'Follow AI Wombat';
+  } else {
+    cameraTarget = 'ai';
+    btn.textContent = 'Follow Player Wombat';
+  }
+  updateCamera();
 });
 
 // Input
@@ -1643,7 +1789,7 @@ function dropCube() {
 }
 
 function pushObject(dc, dr, dl) {
-  // Shift + direction: push the object in front one cell; wombat does not move
+  // Shift + direction: push a chain of up to 6 pushable objects one cell forward.
   const nc = wombat.c + dc;
   const nr = wombat.r + dr;
   let nl = wombat.l + dl;
@@ -1651,68 +1797,102 @@ function pushObject(dc, dr, dl) {
   if (dl === 0 && wombat.l === SKY) nl = SURFACE;
   if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || nl < 0 || nl >= LAYERS) return;
 
-  // Harry first
+  // Harry directly in front can still be pushed one cell the old way
   if (harryAt(nc, nr, nl)) {
     pushHarry({c: dc, r: dr, l: dl});
     return;
   }
 
-  // Boulders can't be pushed
-  if (boulderOccupies(nc, nr, nl)) {
-    showMessage('Boulder is too heavy to push');
+  // Walk up to 6 cells collecting pushable objects; stop at first empty cell
+  const chain = [];
+  let cc = nc, rr = nr, ll = nl;
+  for (let i = 0; i < 6; i++) {
+    if (cc < 0 || cc >= COLS || rr < 0 || rr >= ROWS || ll < 0 || ll >= LAYERS) {
+      showMessage('Push chain blocked — edge of world');
+      sfx('hit');
+      return;
+    }
+    if (harryAt(cc, rr, ll)) {
+      showMessage('Harry is in the way');
+      sfx('hit');
+      return;
+    }
+    if (boulderOccupies(cc, rr, ll)) {
+      showMessage('Boulder is too heavy to push');
+      sfx('hit');
+      return;
+    }
+    if (poopWalls.some(w => w.c === cc && w.r === rr && w.l === ll)) {
+      showMessage('Poop wall blocks the chain');
+      sfx('hit');
+      return;
+    }
+    const t = tileAt(cc, rr, ll);
+    if (t === BEDROCK || (t === DIRT && ll > SURFACE)) {
+      showMessage('Blocked — solid dirt/bedrock in the way');
+      sfx('hit');
+      return;
+    }
+
+    const rock = rockAt(cc, rr, ll);
+    if (rock) {
+      chain.push({ kind: 'rock', obj: rock });
+      cc += dc; rr += dr; ll += dl;
+      continue;
+    }
+    const cube = dirtCubeAt(cc, rr, ll);
+    if (cube) {
+      chain.push({ kind: 'cube', obj: cube });
+      cc += dc; rr += dr; ll += dl;
+      continue;
+    }
+    const item = itemAt(cc, rr, ll);
+    if (item && item.found) {
+      chain.push({ kind: 'item', obj: item });
+      cc += dc; rr += dr; ll += dl;
+      continue;
+    }
+    // Empty cell — end of chain
+    break;
+  }
+
+  if (chain.length === 0) {
+    showMessage('Nothing to push there');
+    return;
+  }
+
+  // The cell beyond the last object must accept an object
+  if (!canPushObjectTo(cc, rr, ll)) {
+    showMessage('Blocked — can\'t push chain that way');
     sfx('hit');
     return;
   }
 
-  // Rocks
-  const rock = rockAt(nc, nr, nl);
-  if (rock) {
-    const bc = nc + dc, br = nr + dr, bl = nl + dl;
-    if (canPushObjectTo(bc, br, bl)) {
-      const targetCube = dirtCubeAt(bc, br, bl);
-      rock.c = bc; rock.r = br; rock.l = bl;
-      rock.under = targetCube || null;
-      rock.onCube = !!targetCube;
-      setObjectPosition(rock);
-      sfx('dig');
+  // Move objects one cell forward in reverse order so they don't overlap
+  let targetCube = dirtCubeAt(cc, rr, ll);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const entry = chain[i];
+    const obj = entry.obj;
+    obj.c = cc; obj.r = rr; obj.l = ll;
+    if (entry.kind === 'item') {
+      obj.under = targetCube || null;
+      obj.onCube = !!targetCube;
+      setItemPosition(obj);
     } else {
-      showMessage('Blocked — can\'t push rock that way');
-      sfx('hit');
+      obj.under = targetCube || null;
+      obj.onCube = !!targetCube;
+      setObjectPosition(obj);
+      if (entry.kind === 'cube' && fillHole(cc, rr, ll)) {
+        // Cube filled a hole and was consumed
+        cc -= dc; rr -= dr; ll -= dl;
+        targetCube = dirtCubeAt(cc, rr, ll);
+        continue;
+      }
     }
-    return;
+    cc -= dc; rr -= dr; ll -= dl;
+    targetCube = dirtCubeAt(cc, rr, ll);
   }
-
-  // Dirt cubes
-  const cube = dirtCubeAt(nc, nr, nl);
-  if (cube) {
-    if (tryPushDirtCube(cube, dc, dr, dl)) {
-      sfx('dig');
-    } else {
-      showMessage('Blocked — can\'t push cube that way');
-      sfx('hit');
-    }
-    return;
-  }
-
-  // Found items
-  const item = itemAt(nc, nr, nl);
-  if (item && item.found) {
-    const bc = nc + dc, br = nr + dr, bl = nl + dl;
-    if (canPushObjectTo(bc, br, bl)) {
-      const targetCube = dirtCubeAt(bc, br, bl);
-      item.c = bc; item.r = br; item.l = bl;
-      item.under = targetCube || null;
-      item.onCube = !!targetCube;
-      setItemPosition(item);
-      sfx('dig');
-    } else {
-      showMessage('Blocked — can\'t push item that way');
-      sfx('hit');
-    }
-    return;
-  }
-
-  showMessage('Nothing to push there');
+  sfx('dig');
 }
 
 function fillHole(c, r, l) {
@@ -1812,7 +1992,7 @@ function pushHarry(fd) {
 }
 
 function tryPushDirtCube(cube, dc, dr, dl) {
-  // Try to push a loose dirt cube one cell in the given direction
+  // Try to push a loose dirt cube one cell in the given direction (used by AI and chain push)
   const bc = cube.c + dc;
   const br = cube.r + dr;
   const bl = cube.l + dl;
@@ -1826,32 +2006,47 @@ function tryPushDirtCube(cube, dc, dr, dl) {
   return true;
 }
 
-function createDisplacedDirtCube(nc, nr, nl, dc, dr, dl) {
-  // Create a small dirt cube from a dug block and shove it behind the wombat if possible
-  const cube = { c: nc, r: nr, l: nl, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
-  cube.mesh.position.set(worldX(nc), getFloorY(nc, nr, nl) + BLOCK * 0.125, worldZ(nr));
-  scene.add(cube.mesh);
-  const backC = wombat.c;
-  const backR = wombat.r;
-  const backL = wombat.l;
-  if (!canPlaceDirtCube(backC, backR, backL)) {
-    // No room behind; try pushing it forward instead
-    if (!tryPushDirtCube(cube, dc, dr, dl)) {
-      scene.remove(cube.mesh);
-      return null;
+function spawnDigCubes(c, r, l) {
+  // Digging a full block produces exactly 4 small dirt cubes.
+  // Each cube tries to occupy one of the four cardinal neighbor cells at the same layer.
+  // Any that can't fit are stacked in the dug cell.
+  const cardinals = [
+    { c: c, r: r - 1 }, // north
+    { c: c + 1, r: r }, // east
+    { c: c, r: r + 1 }, // south
+    { c: c - 1, r: r }  // west
+  ];
+  const spawned = [];
+  let remaining = 4;
+  for (const p of cardinals) {
+    if (remaining <= 0) break;
+    if (canPlaceDirtCube(p.c, p.r, l)) {
+      const cube = { c: p.c, r: p.r, l: l, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
+      setObjectPosition(cube);
+      scene.add(cube.mesh);
+      dirtCubes.push(cube);
+      spawned.push(cube);
+      remaining--;
     }
-  } else {
-    cube.c = backC; cube.r = backR; cube.l = backL;
-    cube.onCube = false; cube.under = null;
-    setObjectPosition(cube);
   }
-  dirtCubes.push(cube);
-  return cube;
+  // Stack remaining cubes in the dug cell itself
+  let under = null;
+  const existing = dirtCubeAt(c, r, l);
+  if (existing) under = existing;
+  for (let i = 0; i < remaining; i++) {
+    const cube = { c: c, r: r, l: l, mesh: createDirtCube(), onCube: !!under, under: under, halfHeight: BLOCK * 0.125 };
+    setObjectPosition(cube);
+    scene.add(cube.mesh);
+    dirtCubes.push(cube);
+    spawned.push(cube);
+    under = cube;
+  }
+  return spawned;
 }
 
 function digAndDisplace(nc, nr, nl, dc, dr, dl, digColor) {
-  const cube = createDisplacedDirtCube(nc, nr, nl, dc, dr, dl);
-  if (!cube) {
+  const spawned = spawnDigCubes(nc, nr, nl);
+  if (spawned.length === 0) {
     showMessage('No room to displace dirt!');
     return false;
   }
@@ -2139,13 +2334,28 @@ function usePoopWall() {
   const r = wombat.r - fd.r;
   const l = wombat.l;
   if (isPassable(c, r, l) && !poopWalls.some(w => w.c === c && w.r === r && w.l === l)) {
-    const mesh = createPoopWall();
+    const mesh = createPoopWall(false);
     mesh.position.set(worldX(c), getFloorY(c, r, l) + BLOCK * 0.125, worldZ(r));
     scene.add(mesh);
-    poopWalls.push({ c, r, l, mesh, hp: 3, halfHeight: BLOCK * 0.125 });
+    poopWalls.push({ c, r, l, mesh, hp: 3, halfHeight: BLOCK * 0.125, aiOwned: false });
     wombat.poopCooldown = 240;
     sfx('poop');
   }
+}
+
+function aiDropPoop() {
+  if (!aiWombat.mesh) return;
+  const c = aiWombat.c;
+  const r = aiWombat.r;
+  const l = aiWombat.l;
+  if (l !== SURFACE && l !== SKY) return;
+  if (!isPassable(c, r, l) || poopWalls.some(w => w.c === c && w.r === r && w.l === l)) return;
+  const mesh = createPoopWall(true);
+  mesh.position.set(worldX(c), getFloorY(c, r, l) + BLOCK * 0.125, worldZ(r));
+  if (!scene) return;
+  scene.add(mesh);
+  poopWalls.push({ c, r, l, mesh, hp: 3, halfHeight: BLOCK * 0.125, aiOwned: true });
+  sfx('poop');
 }
 
 function useSniff() {
@@ -2281,6 +2491,180 @@ function checkDeliveries() {
   }
 }
 
+function nearestLooseCube(c, r, l, maxDist) {
+  maxDist = maxDist || 999;
+  let best = null, bestDist = Infinity;
+  for (const cube of dirtCubes) {
+    if (cube.aiOwned) continue;
+    const d = Math.abs(cube.c - c) + Math.abs(cube.r - r) + Math.abs(cube.l - l);
+    if (d < bestDist && d <= maxDist) {
+      bestDist = d;
+      best = cube;
+    }
+  }
+  return best;
+}
+
+function harryPickupCube(cube) {
+  if (!cube || !dirtCubes.includes(cube)) return false;
+  dirtCubes = dirtCubes.filter(c => c !== cube);
+  harry.carrying = cube;
+  if (harry.group) {
+    harry.group.add(cube.mesh);
+    cube.mesh.position.set(0.6, 2.0, 0.4);
+  }
+  return true;
+}
+
+function harryPlaceCarrying(c, r, l) {
+  if (!harry.carrying) return false;
+  const cube = harry.carrying;
+  if (harry.group) harry.group.remove(cube.mesh);
+  cube.c = c; cube.r = r; cube.l = l;
+  const existing = dirtCubeAt(c, r, l);
+  cube.under = existing || null;
+  cube.onCube = !!existing;
+  setObjectPosition(cube);
+  if (!scene) return false;
+  scene.add(cube.mesh);
+  dirtCubes.push(cube);
+  harry.carrying = null;
+  return true;
+}
+
+function harryMoveToward(tc, tr, tl) {
+  tl = tl === undefined ? null : tl;
+  // Climb up if target layer is above
+  if (tl !== null && tl < harry.l && canHarryEnter(harry.c, harry.r, harry.l - 1)) {
+    harry.l--;
+    settleHarry();
+    return true;
+  }
+  const dc = Math.sign(tc - harry.c);
+  const dr = Math.sign(tr - harry.r);
+  if (dc !== 0 && canHarryWanderTo(harry.c + dc, harry.r, harry.l)) {
+    harry.c += dc;
+    settleHarry();
+    return true;
+  }
+  if (dr !== 0 && canHarryWanderTo(harry.c, harry.r + dr, harry.l)) {
+    harry.r += dr;
+    settleHarry();
+    return true;
+  }
+  return false;
+}
+
+function pickHarryProject() {
+  const roll = Math.random();
+  if (roll < 0.25 && aiWombat.mesh && aiWombat.state !== 'absent') return 'chaseAI';
+  if (roll < 0.45) return 'buildTower';
+  if (roll < 0.65) return 'buildRamp';
+  return 'wander';
+}
+
+function getHarryProjectText() {
+  if (harry.state !== 'present') return '';
+  switch (harry.project) {
+    case 'buildTower': return 'Building a tower';
+    case 'buildRamp': return 'Building a ramp';
+    case 'chaseAI': return 'Chasing the AI wombat';
+    case 'wander': default: return 'Wandering';
+  }
+}
+
+function harryProjectTick() {
+  harry.projectTimer--;
+  if (harry.projectTimer <= 0) {
+    harry.project = pickHarryProject();
+    harry.projectTimer = randInt(10, 20);
+    harry.towerC = null; harry.towerR = null;
+    harry.rampDir = null; harry.rampStep = 0;
+    harry.rampStartC = null; harry.rampStartR = null;
+  }
+
+  switch (harry.project) {
+    case 'chaseAI':
+      if (!aiWombat.mesh || aiWombat.state === 'absent') {
+        harry.project = 'wander';
+        break;
+      }
+      harryMoveToward(aiWombat.c, aiWombat.r);
+      break;
+
+    case 'buildTower': {
+      if (harry.carrying) {
+        const baseC = harry.towerC != null ? harry.towerC : harry.c;
+        const baseR = harry.towerR != null ? harry.towerR : harry.r;
+        if (harry.c === baseC && harry.r === baseR) {
+          harryPlaceCarrying(baseC, baseR, harry.l);
+        } else {
+          harryMoveToward(baseC, baseR);
+        }
+      } else {
+        const cube = nearestLooseCube(harry.c, harry.r, harry.l, 30);
+        if (!cube) {
+          harry.project = 'wander';
+          break;
+        }
+        if (harry.towerC == null) { harry.towerC = harry.c; harry.towerR = harry.r; }
+        if (Math.abs(harry.c - cube.c) + Math.abs(harry.r - cube.r) <= 1 && harry.l === cube.l) {
+          harryPickupCube(cube);
+        } else {
+          harryMoveToward(cube.c, cube.r);
+        }
+      }
+      break;
+    }
+
+    case 'buildRamp': {
+      if (!harry.rampDir) {
+        const dir = FACING_DIRS[randInt(0, 3)];
+        harry.rampDir = dir;
+        harry.rampStep = 0;
+        harry.rampStartC = harry.c;
+        harry.rampStartR = harry.r;
+      }
+      if (harry.carrying) {
+        const targetC = harry.rampStartC + harry.rampDir.c * harry.rampStep;
+        const targetR = harry.rampStartR + harry.rampDir.r * harry.rampStep;
+        const targetL = harry.l + harry.rampStep;
+        if (targetL >= LAYERS) { harry.project = 'wander'; break; }
+        if (harry.c === targetC && harry.r === targetR && harry.l === targetL) {
+          harryPlaceCarrying(targetC, targetR, targetL);
+          harry.rampStep++;
+        } else {
+          harryMoveToward(targetC, targetR, targetL);
+        }
+      } else {
+        const cube = nearestLooseCube(harry.c, harry.r, harry.l, 30);
+        if (!cube) {
+          harry.project = 'wander';
+          break;
+        }
+        if (Math.abs(harry.c - cube.c) + Math.abs(harry.r - cube.r) <= 1 && harry.l === cube.l) {
+          harryPickupCube(cube);
+        } else {
+          harryMoveToward(cube.c, cube.r);
+        }
+      }
+      break;
+    }
+
+    case 'wander':
+    default: {
+      const dir = FACING_DIRS[randInt(0, 3)];
+      const nc = harry.c + dir.c;
+      const nr = harry.r + dir.r;
+      if (canHarryWanderTo(nc, nr, harry.l)) {
+        harry.c = nc; harry.r = nr;
+        settleHarry();
+      }
+      break;
+    }
+  }
+}
+
 function updateHarry(dt) {
   // Update Harry's visual position (supports falling underground and being pushed)
   if (harry.group) {
@@ -2290,22 +2674,18 @@ function updateHarry(dt) {
     harry.group.position.z += (worldZ(harry.r) - harry.group.position.z) * 0.15;
   }
 
-  // Harry wanders around horizontally when present. If he has fallen, he can still
-  // wander on the same layer (and on dirt-cube ramps) but cannot climb out on his own.
+  // Run project-based behavior when present. If he has fallen, he can still
+  // move on the same layer (and on dirt-cube ramps) but cannot climb out on his own.
   if (harry.state === 'present') {
     harry.moveTimer--;
     if (harry.moveTimer <= 0) {
-      const dir = FACING_DIRS[randInt(0, 3)];
-      const nc = harry.c + dir.c;
-      const nr = harry.r + dir.r;
-      if (canHarryWanderTo(nc, nr, harry.l)) {
-        harry.c = nc;
-        harry.r = nr;
-        settleHarry();
-      }
-      harry.moveTimer = randInt(120, 240);
+      harryProjectTick();
+      harry.moveTimer = randInt(80, 180);
     }
   }
+
+  const projectStatus = document.getElementById('harryProjectStatus');
+  if (projectStatus) projectStatus.textContent = getHarryProjectText();
 
   if (harry.fallen) {
     document.getElementById('harryStatus').textContent = 'Harry fell in! Push him back to the surface.';
@@ -2722,7 +3102,7 @@ function pushableAt(c, r, l) {
   if (rock) return { kind: 'rock', obj: rock };
   const cube = dirtCubeAt(c, r, l);
   if (cube) return { kind: 'cube', obj: cube };
-  const wall = poopWalls.find(w => w.c === c && w.r === r && w.l === l);
+  const wall = poopWalls.find(w => w.c === c && w.r === r && w.l === l && !w.aiOwned);
   if (wall) return { kind: 'poop', obj: wall };
   return null;
 }
@@ -2764,32 +3144,8 @@ function aiDig(c, r, l) {
   if (l !== SURFACE) return false;
   if (tileAt(c, r, l) !== DIRT) return false;
 
-  // Displace a dirt cube behind the AI wombat, just like the player does
-  const fd = FACING_DIRS[aiWombat.facing];
-  const cube = { c, r, l, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
-  scene.add(cube.mesh);
-
-  const behind = { c: c - fd.c, r: r - fd.r };
-  const candidates = [behind];
-  for (const d of FACING_DIRS) {
-    candidates.push({ c: c + d.c, r: r + d.r });
-  }
-
-  let placed = false;
-  for (const p of candidates) {
-    if (canPlaceDirtCube(p.c, p.r, l)) {
-      cube.c = p.c; cube.r = p.r;
-      setObjectPosition(cube);
-      placed = true;
-      break;
-    }
-  }
-
-  if (!placed) {
-    scene.remove(cube.mesh);
-    return false;
-  }
-  dirtCubes.push(cube);
+  const spawned = spawnDigCubes(c, r, l);
+  if (spawned.length === 0) return false;
 
   setTile(c, r, l, AIR);
   removeBlockMesh(c, r, l);
@@ -3086,6 +3442,11 @@ function updateAIWombat(dt) {
       }
       break;
     }
+  }
+
+  // Occasionally drop a blue AI-owned poop wall while wandering on the surface/sky
+  if (aiWombat.state === 'idle' && (aiWombat.l === SURFACE || aiWombat.l === SKY) && Math.random() < 0.01) {
+    aiDropPoop();
   }
 
   // Face movement direction

@@ -13,14 +13,15 @@ web_content/harrys-burrow-3d/
 
 ## Architecture
 
-- Single-file game using Three.js (loaded from CDN).
+- Single-file game using Three.js (loaded from CDN), plus GLTFLoader and OBJLoader for realistic models.
 - Grid-based world:
   - `l = 0` — sky layer (empty, walkable without digging)
   - `l = 1` — surface grass (diggable)
-  - `l = 2..4` — dirt layers
-  - `l = 5` — bedrock floor
+  - `l = 2..7` — dirt layers
+  - `l = 8` — bedrock floor
+- Each logical dirt block is rendered as one big mesh but is conceptually composed of 8 small cubes (2×2×2). Digging a block spawns 4 small dirt cubes in the cardinal neighbor cells.
 - The player (wombat), Harry, thieves, and the AI wombat live on the grid.
-- Objects (items, rocks, dirt cubes, boulders, trees) are stored in arrays and rendered as Three.js meshes.
+- Objects (items, rocks, dirt cubes, boulders, trees, poop walls) are stored in arrays and rendered as Three.js meshes.
 
 ## Key constants
 
@@ -68,13 +69,13 @@ Live URL: https://phred.boppers.net/harrys-burrow-3d/
 ## Conventions
 
 - Keep the game in one file unless it becomes unwieldy.
-- Prefer Three.js primitives over external assets for now.
-- Do not add build tools or bundlers without checking with Harry/Matt.
+- External assets (GLTF/OBJ) are loaded from CDN loaders with procedural fallbacks; no build tools or bundlers.
 - When changing mechanics, update this file and `README.md` if the public interface changes.
 
 ## Things that are intentionally rough / easy to extend
 
 - The AI wombat uses a simple state machine and can get stuck.
+- Harry's project AI is basic and may abandon projects when cubes are scarce.
 - Boulders do not damage characters when they land.
 
 ## Positioning convention

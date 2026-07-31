@@ -24,23 +24,24 @@ Or open `index.html` directly in a modern browser.
 | `I` / `K` or `PgUp` / `PgDn` | Move up / down a layer |
 | `Space` | Pick up / drop an item or dirt cube |
 | `P` | Stash item in pouch / take item out |
-| `Shift` + direction | Push rock, dirt cube, or item |
+| `Shift` + direction | Push a chain of up to 6 rocks, dirt cubes, or found items |
 | `E` | Drop a cube-shaped poop wall behind you |
+| Camera panel | Toggle "Follow AI Wombat" to swap the camera target |
 | `Q` | Sniff radar — points to the nearest item |
 | `R` | Call Harry back when he wanders off |
 
 ## Core mechanics
 
 - **Sky layer**: the wombat and Harry start above the grass and can walk around without digging.
-- **Digging**: press `K` to drop to the grass, then dig down through dirt.
+- **Digging**: press `K` to drop to the grass, then dig down through dirt. Each full block is made of 1/4-size cubes; digging it spawns 4 small dirt cubes in the cardinal neighbor cells.
 - **Items**: retrieve the objects on Harry's BopList and bring them back to him.
 - **Pouch**: wombats can stash one item in their pouch, so you can carry two items at once.
-- **Pushing**: rocks, dirt cubes, and found items can be pushed around.
-- **Harry**: he gets bored and wanders. He is not very aware and can fall into holes. Build dirt-cube walls around holes to keep him safe.
+- **Pushing**: hold `Shift` + direction to push a chain of up to 6 rocks, dirt cubes, or found items. Boulders and poop walls stop the chain.
+- **Harry**: he gets bored and wanders, but now also picks his own projects — building towers, building ramps, chasing the AI wombat, or just wandering. He is not very aware and can fall into holes. Build dirt-cube walls around holes to keep him safe.
 - **Filling holes**: drop or push a dirt cube into a dug surface hole to patch it.
-- **Trees**: some items are hidden in trees; build a ramp of dirt cubes to reach them.
+- **Trees**: some items are hidden in trees; build a ramp of dirt cubes to reach them. Trees use a realistic GLTF model with a procedural fallback.
 - **Boulders**: large 2×2 rocks that cannot be pushed; they fall if you dig out everything underneath them.
-- **AI wombat**: a second autonomous wombat roams the map collecting rocks.
+- **AI wombat**: a second autonomous wombat roams the map collecting rocks and occasionally dropping blue poop walls that only it can move.
 
 ## Deployment
 
