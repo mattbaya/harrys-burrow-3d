@@ -336,7 +336,9 @@ function rockAt(c, r, l) {
   return rocks.find(e => Math.round(e.c) === c && Math.round(e.r) === r && Math.round(e.l) === l);
 }
 function itemAt(c, r, l) {
-  return items.find(i => !i.delivered && !i.stolen && Math.round(i.c) === c && Math.round(i.r) === r && Math.round(i.l) === l);
+  // Items stuck in trees are not picked up by walking over their tree cell;
+  // they must be grabbed while standing next to the branch.
+  return items.find(i => !i.delivered && !i.stolen && !i.inTree && Math.round(i.c) === c && Math.round(i.r) === r && Math.round(i.l) === l);
 }
 function harryAt(c, r, l) {
   return Math.round(harry.c) === c && Math.round(harry.r) === r && harry.l === l;
@@ -951,7 +953,7 @@ function addLeafCluster(group, x, y, z, clusterRadius, leafMats) {
   }
 }
 
-function addBranch(group, x, y, z, startRadius, treeRadius, treeHeight, leafMats, depth, angleIndex, angleCount) {
+function addBranch(group, x, y, z, startRadius, treeRadius, treeHeight, leafMats, depth, angleIndex, angleCount, attachPoints) {
   if (depth > 2) return;
   const length = treeHeight * (0.18 + Math.random() * 0.12) * Math.pow(0.7, depth);
   const endRadius = startRadius * 0.55;
@@ -977,11 +979,23 @@ function addBranch(group, x, y, z, startRadius, treeRadius, treeHeight, leafMats
   const endY = y + endLocal.y;
   const endZ = z + endLocal.z;
 
+  // Record attachment points near branch ends where a BopList item could be stuck
+  if (attachPoints && depth <= 1) {
+    const midLocal = new THREE.Vector3(0, length * 0.75, 0);
+    midLocal.applyEuler(branchGroup.rotation);
+    attachPoints.push({
+      x: x + midLocal.x,
+      y: y + midLocal.y,
+      z: z + midLocal.z,
+      depth
+    });
+  }
+
   addLeafCluster(group, endX, endY, endZ, treeRadius * (0.35 + depth * 0.05), leafMats);
 
   // Occasional sub-branch
   if (depth < 2 && Math.random() > 0.35) {
-    addBranch(group, endX, endY, endZ, endRadius, treeRadius, treeHeight, leafMats, depth + 1, 0, 1);
+    addBranch(group, endX, endY, endZ, endRadius, treeRadius, treeHeight, leafMats, depth + 1, 0, 1, attachPoints);
   }
 }
 
@@ -990,6 +1004,7 @@ function createTreeMesh(height) {
   const radius = (height / 2) * BLOCK;
   const treeHeight = height * BLOCK;
   const group = new THREE.Group();
+  const attachPoints = [];
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 1.0 });
   const leafMats = [
     new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 0.9 }),
@@ -1026,14 +1041,14 @@ function createTreeMesh(height) {
     const startRadius = radius * 0.14 * (1 - (y / trunkH) * 0.5);
     const branches = 2 + Math.floor(Math.random() * 2);
     for (let b = 0; b < branches; b++) {
-      addBranch(group, 0, y, 0, startRadius, radius, treeHeight, leafMats, 0, b, branches);
+      addBranch(group, 0, y, 0, startRadius, radius, treeHeight, leafMats, 0, b, branches, attachPoints);
     }
   }
 
   // Top cluster
   addLeafCluster(group, 0, trunkH * 0.92, 0, radius * 0.55, leafMats);
 
-  return group;
+  return { group, attachPoints };
 }
 
 // Boulders
@@ -1169,12 +1184,12 @@ function initLevel(idx) {
       }
     } while (!fits && attempts < 200);
     if (fits) {
-      const mesh = createTreeMesh(height);
+      const { group: mesh, attachPoints } = createTreeMesh(height);
       // Sit the tree on the floor of the surface layer
       const floorY = worldY(SURFACE) - BLOCK / 2;
       mesh.position.set(worldX(c), floorY, worldZ(r));
       scene.add(mesh);
-      trees.push({ c, r, l: SURFACE, height, radius, mesh, itemType: null, hasItem: false });
+      trees.push({ c, r, l: SURFACE, height, radius, mesh, attachPoints, itemType: null, hasItem: false });
     }
   }
 
@@ -1182,11 +1197,16 @@ function initLevel(idx) {
   const treeItemType = cfg.items.length > 0 ? cfg.items[randInt(0, cfg.items.length - 1)] : null;
   cfg.items.forEach((type, idx) => {
     let c, r, l, inTree = false, attempts = 0;
+    let treeOffset = null;
     if (type === treeItemType && trees.length > 0) {
       const tree = trees[randInt(0, trees.length - 1)];
       tree.itemType = type;
       tree.hasItem = true;
       c = tree.c; r = tree.r; l = SURFACE; inTree = true;
+      // Pick a reachable branch point (not too high, not too low)
+      const reachable = tree.attachPoints.filter(p => p.y >= BLOCK * 1.2 && p.y <= BLOCK * 3.0);
+      const point = (reachable.length ? reachable : tree.attachPoints)[randInt(0, Math.max(0, (reachable.length ? reachable : tree.attachPoints).length - 1))];
+      treeOffset = { x: point.x, y: point.y, z: point.z };
     } else {
       do {
         c = randInt(1, COLS-2);
@@ -1197,10 +1217,17 @@ function initLevel(idx) {
       if (attempts >= 200) grid[l][r][c] = DIRT;
     }
     const mesh = createItemMesh(type);
-    mesh.position.set(worldX(c), getFloorY(c, r, l) + 0.7, worldZ(r));
-    mesh.visible = false;
+    if (inTree && treeOffset) {
+      // Item is stuck in a branch on the outside of the tree
+      mesh.position.set(worldX(c) + treeOffset.x, (worldY(SURFACE) - BLOCK / 2) + treeOffset.y, worldZ(r) + treeOffset.z);
+      mesh.rotation.set(Math.random() * 0.4, Math.random() * Math.PI * 2, Math.random() * 0.4);
+      mesh.visible = true;
+    } else {
+      mesh.position.set(worldX(c), getFloorY(c, r, l) + 0.7, worldZ(r));
+      mesh.visible = false;
+    }
     scene.add(mesh);
-    items.push({ type, c, r, l, mesh, found: false, stolen: false, delivered: false, onCube: false, under: null, inPouch: false, inTree, halfHeight: 0.7 });
+    items.push({ type, c, r, l, mesh, found: inTree, stolen: false, delivered: false, onCube: false, under: null, inPouch: false, inTree, treeOffset, halfHeight: 0.7 });
   });
 
   // Boulders: 2x2 immovable obstacles on surface or underground
@@ -1811,27 +1838,30 @@ function revealItems(c, r, l) {
 }
 
 function checkTreeItems() {
-  // Reveal tree items when the wombat is next to the tree and standing on a dirt cube ramp
-  trees.forEach(tree => {
-    if (!tree.hasItem) return;
-    const item = items.find(i => i.inTree && i.type === tree.itemType && !i.found);
-    if (!item) return;
-    const dx = wombat.c - tree.c;
-    const dy = wombat.r - tree.r;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    // Wombat must be within the tree's canopy reach and standing on a placed dirt cube
-    const cubeHere = dirtCubeAt(wombat.c, wombat.r, wombat.l);
-    if (cubeHere && dist <= tree.radius + 1.5 && wombat.l === SURFACE) {
-      item.found = true;
-      item.inTree = false;
-      // Drop the item right where the wombat is standing
-      item.c = wombat.c; item.r = wombat.r; item.l = wombat.l;
-      item.onCube = true; item.under = cubeHere;
-      setItemPosition(item);
-      item.mesh.visible = true;
-      showMessage('Found ' + ITEM_CATALOG[item.type].name + ' in the tree!');
-    }
-  });
+  // Show hints when the wombat is near a tree item
+  const item = treeItemInReach();
+  if (item) {
+    showMessage('Press Space to grab ' + ITEM_CATALOG[item.type].name);
+  }
+}
+
+function treeItemInReach() {
+  // A tree item can be grabbed if the wombat is close to it horizontally and vertically
+  if (!wombat.mesh) return null;
+  const wx = wombat.mesh.position.x;
+  const wy = wombat.mesh.position.y;
+  const wz = wombat.mesh.position.z;
+  for (const item of items) {
+    if (!item.inTree || item.delivered || item.stolen) continue;
+    const tree = trees.find(t => t.c === item.c && t.r === item.r && t.hasItem && t.itemType === item.type);
+    if (!tree) continue;
+    const dx = wx - item.mesh.position.x;
+    const dz = wz - item.mesh.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > BLOCK * 2.0) continue;
+    if (Math.abs(item.mesh.position.y - wy) < BLOCK * 1.2) return item;
+  }
+  return null;
 }
 
 function togglePickup() {
@@ -1851,6 +1881,19 @@ function togglePickup() {
       carriedItem = item;
       item.mesh.visible = false;
       sfx('pickup');
+    } else {
+      // Grab an item stuck in a nearby tree branch
+      const treeItem = treeItemInReach();
+      if (treeItem) {
+        treeItem.inTree = false;
+        treeItem.found = true;
+        carriedItem = treeItem;
+        treeItem.mesh.visible = false;
+        const tree = trees.find(t => t.c === treeItem.c && t.r === treeItem.r);
+        if (tree) { tree.hasItem = false; tree.itemType = null; }
+        sfx('pickup');
+        showMessage('Grabbed ' + ITEM_CATALOG[treeItem.type].name + ' from the tree!');
+      }
     }
   }
 }
@@ -2016,7 +2059,7 @@ function deliverItem(item) {
 function checkDeliveries() {
   if (harry.fallen || harry.state === 'absent') return;
   for (const item of items) {
-    if (!item.found || item.delivered || item.stolen) continue;
+    if (!item.found || item.delivered || item.stolen || item.inTree) continue;
     if (item.l !== SURFACE) continue;
     const isHeld = (item === carriedItem || item === pouchItem);
     const c = isHeld ? wombat.c : item.c;
@@ -2127,7 +2170,7 @@ function updateThieves(dt) {
     }
 
     // Find target item
-    const candidates = items.filter(i => !i.delivered && !i.stolen && i.found && i.l === SURFACE && !i.inPouch && (!carriedItem || carriedItem !== i));
+    const candidates = items.filter(i => !i.delivered && !i.stolen && i.found && !i.inTree && i.l === SURFACE && !i.inPouch && (!carriedItem || carriedItem !== i));
     const target = candidates.length ? candidates.reduce((best, i) => {
       const da = Math.abs(i.c - t.c) + Math.abs(i.r - t.r);
       const db = Math.abs(best.c - t.c) + Math.abs(best.r - t.r);
