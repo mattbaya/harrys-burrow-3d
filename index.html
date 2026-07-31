@@ -490,12 +490,13 @@ function initThree() {
 
     window.addEventListener('resize', onResize);
     document.addEventListener('keydown', e => {
+      const k = e.key === 'Space' ? ' ' : e.key;
       const gameKeys = ['w','a','s','d','W','A','S','D','i','I','k','K',' ','Shift','PageUp','PageDown','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','e','E','q','Q','r','R','p','P'];
-      if (gameKeys.includes(e.key)) e.preventDefault();
-      keys[e.key] = true;
-      handleKey(e.key);
+      if (gameKeys.includes(k)) e.preventDefault();
+      keys[k] = true;
+      handleKey(k);
     });
-    document.addEventListener('keyup', e => { keys[e.key] = false; });
+    document.addEventListener('keyup', e => { keys[e.key === 'Space' ? ' ' : e.key] = false; });
     renderer.domElement.addEventListener('mousedown', e => { mouseDown = true; mouseX = e.clientX; mouseY = e.clientY; });
     window.addEventListener('mouseup', () => mouseDown = false);
     window.addEventListener('mousemove', e => {
