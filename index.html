@@ -2763,9 +2763,38 @@ function aiDig(c, r, l) {
   // AI-only surface dig used for the "dig under Harry" quirk
   if (l !== SURFACE) return false;
   if (tileAt(c, r, l) !== DIRT) return false;
+
+  // Displace a dirt cube behind the AI wombat, just like the player does
+  const fd = FACING_DIRS[aiWombat.facing];
+  const cube = { c, r, l, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
+  scene.add(cube.mesh);
+
+  const behind = { c: c - fd.c, r: r - fd.r };
+  const candidates = [behind];
+  for (const d of FACING_DIRS) {
+    candidates.push({ c: c + d.c, r: r + d.r });
+  }
+
+  let placed = false;
+  for (const p of candidates) {
+    if (canPlaceDirtCube(p.c, p.r, l)) {
+      cube.c = p.c; cube.r = p.r;
+      setObjectPosition(cube);
+      placed = true;
+      break;
+    }
+  }
+
+  if (!placed) {
+    scene.remove(cube.mesh);
+    return false;
+  }
+  dirtCubes.push(cube);
+
   setTile(c, r, l, AIR);
   removeBlockMesh(c, r, l);
   checkHarryFall(c, r, l);
+  revealItems(c, r, l);
   sfx('dig');
   spawnParticles(c, r, l, 0x7a5c3c, 6);
   return true;
