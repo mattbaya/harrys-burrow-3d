@@ -2012,6 +2012,7 @@ function spawnDigCubes(c, r, l, dc, dr, dl) {
   // The wombat always kicks them somewhere: behind first, then down, then up,
   // then any other horizontal neighbor. Anything still left is stacked in the
   // dug cell. Cubes kicked into the air (e.g. "up") will fall on the next update.
+  dc = dc || 0; dr = dr || 0; dl = dl || 0;
   const candidates = [];
   // 1) behind the wombat (opposite to movement)
   candidates.push({ c: c - dc, r: r - dr, l: l - dl });
@@ -2029,6 +2030,7 @@ function spawnDigCubes(c, r, l, dc, dr, dl) {
   const spawned = [];
   for (const p of candidates) {
     if (spawned.length >= 4) break;
+    if (p.c === c && p.r === r && p.l === l) continue; // dug cell is reserved for stacking
     if (canPlaceDirtCube(p.c, p.r, p.l)) {
       const cube = { c: p.c, r: p.r, l: p.l, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
       setObjectPosition(cube);
@@ -3143,7 +3145,8 @@ function aiDig(c, r, l) {
   if (l !== SURFACE) return false;
   if (tileAt(c, r, l) !== DIRT) return false;
 
-  const spawned = spawnDigCubes(c, r, l);
+  const fd = FACING_DIRS[aiWombat.facing] || { c: 0, r: 0 };
+  const spawned = spawnDigCubes(c, r, l, fd.c, fd.r, 0);
   if (spawned.length === 0) return false;
 
   setTile(c, r, l, AIR);
