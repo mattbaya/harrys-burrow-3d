@@ -168,6 +168,10 @@
       <div style="font-size:0.75rem;">Score: <span id="score">0</span></div>
       <div style="font-size:0.75rem;" id="harryStatus">Harry is watching</div>
     </div>
+    <div class="panel">
+      <h3>AI Wombat</h3>
+      <div id="aiStatus" style="font-size:0.8rem;">Thinking...</div>
+    </div>
   </div>
 
   <div id="overlay">
@@ -2998,6 +3002,27 @@ function updateUI() {
   else depthText = (wombat.l - SURFACE) + ' down';
   document.getElementById('depthNum').textContent = depthText;
   document.getElementById('score').textContent = score;
+
+  const aiStatusEl = document.getElementById('aiStatus');
+  if (aiStatusEl) aiStatusEl.textContent = getAIStatusText();
+}
+
+function getAIStatusText() {
+  if (!aiWombat.mesh) return 'Thinking...';
+  const state = aiWombat.state || 'idle';
+  switch (state) {
+    case 'idle': return 'Looking around for trouble';
+    case 'mischief':
+      if (aiWombat.targetHole) return 'Pushing stuff into a hole';
+      return 'Looking for something to push';
+    case 'harryMischief':
+      if (harry.fallen) return 'Trying to bury Harry 😈';
+      return 'Lurking near Harry...';
+    case 'digUnderHarry': return 'Digging under Harry 😈';
+    case 'fetch': return 'Fetching a rock';
+    case 'deliver': return 'Dragging a rock somewhere';
+    default: return 'Thinking...';
+  }
 }
 
 // Render loop
