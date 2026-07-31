@@ -418,8 +418,22 @@ function canPushObjectTo(c, r, l) {
   if (poopWalls.some(w => w.c === c && w.r === r && w.l === l)) return false;
   return true;
 }
+function getCubeBaseY(cube) {
+  // Compute the y-coordinate of the bottom of a loose dirt cube, following its under chain for stacking.
+  if (cube.under && dirtCubes.includes(cube.under) &&
+      Math.round(cube.under.c) === Math.round(cube.c) &&
+      Math.round(cube.under.r) === Math.round(cube.r) &&
+      cube.under.l === cube.l) {
+    return getCubeBaseY(cube.under) + BLOCK * 0.25;
+  }
+  return getFloorY(cube.c, cube.r, cube.l + 1);
+}
+
 function setObjectPosition(obj) {
-  obj.mesh.position.set(worldX(obj.c), getFloorY(obj.c, obj.r, obj.l) + (obj.halfHeight || 0), worldZ(obj.r));
+  const y = dirtCubes.includes(obj)
+    ? getCubeBaseY(obj) + obj.halfHeight
+    : getFloorY(obj.c, obj.r, obj.l) + (obj.halfHeight || 0);
+  obj.mesh.position.set(worldX(obj.c), y, worldZ(obj.r));
 }
 function setItemPosition(item) {
   item.mesh.position.set(worldX(item.c), getFloorY(item.c, item.r, item.l) + (item.halfHeight || 0), worldZ(item.r));
@@ -2446,45 +2460,76 @@ function cubeUnderIsPresent(cube) {
 }
 
 function rollDownRamp(obj) {
-  // If the object is floating in AIR with no cube directly below, check for a downhill neighbor with support
+  // If the object is floating, check for a downhill neighbor supported by a block/cube below
   if (obj.l >= BEDROCK_LAYER) return false;
   if (obj.l === SKY) return false;
-  if (tileAt(obj.c, obj.r, obj.l) !== AIR) return false; // still supported by a block
-  if (cubeUnderIsPresent(obj)) return false; // supported by a cube directly below
+  const below = obj.l + 1;
+  if (below >= LAYERS) return false;
+  const t = tileAt(obj.c, obj.r, below);
+  if (t === DIRT || t === BEDROCK) return false; // supported by block below
+  if (dirtCubeAt(obj.c, obj.r, below)) return false; // supported by cube below
+  if (cubeUnderIsPresent(obj)) return false; // stacked on a cube in the same cell
 
   const dirs = FACING_DIRS;
   for (const d of dirs) {
     const nc = obj.c + d.c;
     const nr = obj.r + d.r;
     if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
-    // Neighbor cell at the same layer has a dirt cube -> slide onto it
-    if (dirtCubeAt(nc, nr, obj.l)) {
+    // Neighbor cell has support one layer below -> slide/roll onto it
+    const nt = tileAt(nc, nr, below);
+    if (nt === DIRT || nt === BEDROCK) {
+      obj.c = nc; obj.r = nr;
+      obj.onCube = false; obj.under = null;
+      return true;
+    }
+    const underCube = dirtCubeAt(nc, nr, below);
+    if (underCube) {
       obj.c = nc; obj.r = nr;
       obj.onCube = true;
-      obj.under = dirtCubeAt(nc, nr, obj.l);
+      obj.under = underCube;
       return true;
     }
   }
   return false;
 }
 
+function isDirtCubeSupported(cube) {
+  const l = cube.l;
+  if (l >= BEDROCK_LAYER) return true;
+  // Stacked on another dirt cube in the same cell
+  if (cubeUnderIsPresent(cube)) return true;
+  const below = l + 1;
+  if (below >= LAYERS) return true;
+  const t = tileAt(cube.c, cube.r, below);
+  if (t === DIRT || t === BEDROCK) return true;
+  if (dirtCubeAt(cube.c, cube.r, below)) return true;
+  return false;
+}
+
 function updateDirtCubes() {
-  // Loose dirt cubes fall if the block they are sitting on is dug away, then roll down ramps
+  // Loose dirt cubes fall if the block/cube below is dug away, then roll down ramps
   let moved = true;
   let iterations = 0;
   while (moved && iterations < LAYERS) {
     moved = false;
     iterations++;
     for (const cube of dirtCubes) {
-      const l = cube.l;
-      if (l >= BEDROCK_LAYER) continue; // bottom of world
-      if (tileAt(cube.c, cube.r, l) !== AIR) {
-        cube.onCube = false; cube.under = null;
-        continue; // still sitting on a block
-      }
-      if (cubeUnderIsPresent(cube)) {
-        cube.onCube = true;
-        continue; // supported by the cube underneath
+      if (isDirtCubeSupported(cube)) {
+        // Update under/onCube bookkeeping when resting on a cube in the layer below
+        if (!cubeUnderIsPresent(cube)) {
+          const below = cube.l + 1;
+          if (below < LAYERS) {
+            const underCube = dirtCubeAt(cube.c, cube.r, below);
+            if (underCube) {
+              cube.under = underCube;
+              cube.onCube = true;
+            } else {
+              cube.under = null;
+              cube.onCube = false;
+            }
+          }
+        }
+        continue;
       }
       cube.l++;
       cube.onCube = false; cube.under = null;
@@ -2510,7 +2555,7 @@ function rockUnderIsPresent(rock) {
 }
 
 function updateRocks() {
-  // Rocks fall if the block they are sitting on is dug away, then roll down ramps
+  // Rocks fall if the block/cube below is dug away, then roll down ramps
   let moved = true;
   let iterations = 0;
   while (moved && iterations < LAYERS) {
@@ -2519,13 +2564,21 @@ function updateRocks() {
     for (const rock of rocks) {
       const l = rock.l;
       if (l >= BEDROCK_LAYER) continue; // bottom of world
-      if (tileAt(rock.c, rock.r, l) !== AIR) {
-        rock.onCube = false; rock.under = null;
-        continue; // still sitting on a block
-      }
       if (rockUnderIsPresent(rock)) {
         rock.onCube = true;
-        continue; // supported by a dirt cube
+        continue; // stacked on a dirt cube in the same cell
+      }
+      const below = l + 1;
+      if (below >= LAYERS) continue;
+      const t = tileAt(rock.c, rock.r, below);
+      if (t === DIRT || t === BEDROCK) {
+        rock.onCube = false; rock.under = null;
+        continue; // supported by block below
+      }
+      if (dirtCubeAt(rock.c, rock.r, below)) {
+        rock.onCube = true;
+        rock.under = dirtCubeAt(rock.c, rock.r, below);
+        continue; // supported by cube below
       }
       rock.l++;
       rock.onCube = false; rock.under = null;
@@ -2563,13 +2616,21 @@ function updateItems() {
       if (item.delivered || item.stolen || item === carriedItem || item === pouchItem || item.inTree) continue;
       const l = item.l;
       if (l >= BEDROCK_LAYER) continue;
-      if (tileAt(item.c, item.r, l) !== AIR) {
-        item.onCube = false; item.under = null;
-        continue;
-      }
       if (itemUnderIsPresent(item)) {
         item.onCube = true;
-        continue;
+        continue; // stacked on a dirt cube in the same cell
+      }
+      const below = l + 1;
+      if (below >= LAYERS) continue;
+      const t = tileAt(item.c, item.r, below);
+      if (t === DIRT || t === BEDROCK) {
+        item.onCube = false; item.under = null;
+        continue; // supported by block below
+      }
+      if (dirtCubeAt(item.c, item.r, below)) {
+        item.onCube = true;
+        item.under = dirtCubeAt(item.c, item.r, below);
+        continue; // supported by cube below
       }
       item.l++;
       item.onCube = false; item.under = null;
