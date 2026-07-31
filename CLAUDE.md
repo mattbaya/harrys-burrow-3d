@@ -43,9 +43,9 @@ import re
 with open('index.html') as f:
     html = f.read()
 scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
-open('/tmp/burrow_check.js','w').write('\n'.join(scripts))
+open('temp/burrow_check.js','w').write('\n'.join(scripts))
 PY
-node --check /tmp/burrow_check.js
+node --check temp/burrow_check.js
 ```
 
 ### Local server
@@ -75,5 +75,8 @@ Live URL: https://phred.boppers.net/harrys-burrow-3d/
 ## Things that are intentionally rough / easy to extend
 
 - The AI wombat uses a simple state machine and can get stuck.
-- Thieves spawn visually at the old surface height and may float slightly.
 - Boulders do not damage characters when they land.
+
+## Positioning convention
+
+Characters and loose objects always sit on top of the voxel/cube below them via `getFloorY(c, r, l)`. Each moving mesh stores its world height in `userData.height` so carried items can be held at mouth level rather than a fixed offset.

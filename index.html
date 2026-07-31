@@ -243,6 +243,7 @@ let sniffLine = null;
 let sceneReady = false;
 let wombatGeometry = null;
 let wombatBaseScale = 0;
+let wombatWorldHeight = 1.5;
 
 // Facing: 0=N (-r), 1=E (+c), 2=S (+r), 3=W (-c)
 // Angles are offset by PI because the wombat model's nose points toward +Z at rotation.y=0
@@ -343,8 +344,16 @@ function harryAt(c, r, l) {
 function dirtCubeAt(c, r, l) {
   return dirtCubes.find(cube => Math.round(cube.c) === c && Math.round(cube.r) === r && cube.l === l);
 }
-function getCubeHeight(c, r, l) {
-  return dirtCubeAt(c, r, l) ? BLOCK * 0.25 : 0;
+function getFloorY(c, r, l) {
+  // Return the y-coordinate of the top of the voxel/cube that an object at (c,r,l) is standing on.
+  if (l < 0 || l >= LAYERS) return worldY(l) - BLOCK / 2;
+  const t = tileAt(c, r, l);
+  if (t === DIRT || t === BEDROCK) return worldY(l) + BLOCK / 2;
+  const cube = dirtCubeAt(c, r, l);
+  if (cube) return worldY(l) - BLOCK / 2 + BLOCK * 0.25; // top of a 1/4 cube
+  // Air: stand on the top of the next voxel down
+  if (l + 1 < LAYERS) return getFloorY(c, r, l + 1);
+  return worldY(l) - BLOCK / 2;
 }
 function treeAt(c, r, l) {
   // Trees occupy a circular footprint on the sky and surface layers
@@ -402,10 +411,10 @@ function canPushObjectTo(c, r, l) {
   return true;
 }
 function setObjectPosition(obj) {
-  obj.mesh.position.set(worldX(obj.c), worldY(obj.l) + (obj.onCube ? BLOCK * 0.25 : 0), worldZ(obj.r));
+  obj.mesh.position.set(worldX(obj.c), getFloorY(obj.c, obj.r, obj.l) + (obj.halfHeight || 0), worldZ(obj.r));
 }
 function setItemPosition(item) {
-  item.mesh.position.set(worldX(item.c), worldY(item.l) + (item.onCube ? BLOCK * 0.25 : 0), worldZ(item.r));
+  item.mesh.position.set(worldX(item.c), getFloorY(item.c, item.r, item.l) + (item.halfHeight || 0), worldZ(item.r));
 }
 
 function webglSupported() {
@@ -621,6 +630,8 @@ function createFallbackWombat() {
   tail.rotation.x = -Math.PI / 2.5;
   group.add(tail);
 
+  const box = new THREE.Box3().setFromObject(group);
+  group.userData.height = box.max.y - box.min.y;
   return group;
 }
 
@@ -650,6 +661,7 @@ function createWombatMesh(color, sizeFactor) {
     mesh.scale.set(s, s, s);
     mesh.castShadow = true;
     group.add(mesh);
+    group.userData.height = (wombatWorldHeight || 1.5) * sizeFactor;
   } else {
     const fallback = createFallbackWombat();
     fallback.traverse(o => {
@@ -660,6 +672,7 @@ function createWombatMesh(color, sizeFactor) {
     });
     fallback.scale.set(sizeFactor, sizeFactor, sizeFactor);
     group.add(fallback);
+    group.userData.height = (fallback.userData.height || 1.5) * sizeFactor;
   }
   return group;
 }
@@ -702,12 +715,14 @@ function loadWombat() {
       geometry.translate(0, size.y / 2, 0);
       const maxDim = Math.max(size.x, size.y, size.z);
       wombatBaseScale = 2.2 / maxDim;
+      wombatWorldHeight = size.y * wombatBaseScale;
       wombatGeometry = geometry;
 
       const mat = new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.9 });
       const mesh = new THREE.Mesh(geometry, mat);
       mesh.scale.set(wombatBaseScale, wombatBaseScale, wombatBaseScale);
       mesh.castShadow = true;
+      mesh.userData.height = wombatWorldHeight;
       setWombatMesh(mesh);
 
       // Upgrade the AI wombat to the real model too if it already exists
@@ -882,11 +897,11 @@ function createThief(type) {
   const colors = { panda: 0xffffff, kangaroo: 0xd2691e, emu: 0x8b4513, tassie: 0x4a0000 };
   const group = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 1.8), new THREE.MeshStandardMaterial({ color: colors[type] || 0xff0000 }));
-  body.position.y = 0.6;
+  body.position.y = 0.5;
   body.castShadow = true;
   group.add(body);
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshStandardMaterial({ color: colors[type] || 0xff0000 }));
-  head.position.y = 1.4;
+  head.position.y = 1.3;
   head.position.z = 0.6;
   group.add(head);
   return group;
@@ -1047,9 +1062,9 @@ function initLevel(idx) {
     if (grid[l][r][c] === DIRT && !(c >= sc-1 && c <= sc+2 && r >= sr-1 && r <= sr+2)) {
       grid[l][r][c] = AIR;
       const mesh = createRock();
-      mesh.position.set(worldX(c), worldY(l), worldZ(r));
+      mesh.position.set(worldX(c), getFloorY(c, r, l) + BLOCK * 0.4, worldZ(r));
       scene.add(mesh);
-      rocks.push({ c, r, l, mesh, onCube: false, under: null });
+      rocks.push({ c, r, l, mesh, onCube: false, under: null, halfHeight: BLOCK * 0.4 });
       placed++;
     }
   }
@@ -1108,10 +1123,10 @@ function initLevel(idx) {
       if (attempts >= 200) grid[l][r][c] = DIRT;
     }
     const mesh = createItemMesh(type);
-    mesh.position.set(worldX(c), worldY(l), worldZ(r));
+    mesh.position.set(worldX(c), getFloorY(c, r, l) + 0.7, worldZ(r));
     mesh.visible = false;
     scene.add(mesh);
-    items.push({ type, c, r, l, mesh, found: false, stolen: false, delivered: false, onCube: false, under: null, inPouch: false, inTree });
+    items.push({ type, c, r, l, mesh, found: false, stolen: false, delivered: false, onCube: false, under: null, inPouch: false, inTree, halfHeight: 0.7 });
   });
 
   // Boulders: 2x2 immovable obstacles on surface or underground
@@ -1134,9 +1149,9 @@ function initLevel(idx) {
         if (tileAt(cc, rr, l) === DIRT) setTile(cc, rr, l, AIR);
       });
       const mesh = createBoulderMesh();
-      mesh.position.set(worldX(c) + BLOCK/2, worldY(l), worldZ(r) + BLOCK/2);
+      mesh.position.set(worldX(c) + BLOCK/2, getFloorY(c, r, l) + BLOCK * 0.7, worldZ(r) + BLOCK/2);
       scene.add(mesh);
-      boulders.push({ c, r, l, mesh, cells });
+      boulders.push({ c, r, l, mesh, cells, halfHeight: BLOCK * 0.7 });
     }
   }
 
@@ -1160,7 +1175,7 @@ function initLevel(idx) {
   harry.r = randInt(1, ROWS-3);
   harry.l = SKY;
   harry.fallen = false;
-  harry.group.position.set(worldX(harry.c), SURFACE_Y, worldZ(harry.r));
+  harry.group.position.set(worldX(harry.c), getFloorY(harry.c, harry.r, harry.l), worldZ(harry.r));
   harry.group.rotation.y = Math.atan2(-(worldX(harry.c)), -(worldZ(harry.r)));
   scene.add(harry.group);
   harry.state = 'present';
@@ -1198,7 +1213,7 @@ function initLevel(idx) {
     dropC: 0,
     dropR: 0
   };
-  aiWombat.mesh.position.set(worldX(aiWombat.c), SURFACE_Y, worldZ(aiWombat.r));
+  aiWombat.mesh.position.set(worldX(aiWombat.c), getFloorY(aiWombat.c, aiWombat.r, aiWombat.l), worldZ(aiWombat.r));
   scene.add(aiWombat.mesh);
   aiWombat.dropC = COLS - 2;
   aiWombat.dropR = ROWS - 2;
@@ -1523,8 +1538,8 @@ function tryPushDirtCube(cube, dc, dr, dl) {
 
 function createDisplacedDirtCube(nc, nr, nl, dc, dr, dl) {
   // Create a small dirt cube from a dug block and shove it behind the wombat if possible
-  const cube = { c: nc, r: nr, l: nl, mesh: createDirtCube(), onCube: false, under: null };
-  cube.mesh.position.set(worldX(nc), worldY(nl), worldZ(nr));
+  const cube = { c: nc, r: nr, l: nl, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
+  cube.mesh.position.set(worldX(nc), getFloorY(nc, nr, nl) + BLOCK * 0.125, worldZ(nr));
   scene.add(cube.mesh);
   const backC = wombat.c;
   const backR = wombat.r;
@@ -1813,9 +1828,9 @@ function usePoopWall() {
   const l = wombat.l;
   if (isPassable(c, r, l) && !poopWalls.some(w => w.c === c && w.r === r && w.l === l)) {
     const mesh = createPoopWall();
-    mesh.position.set(worldX(c), worldY(l), worldZ(r));
+    mesh.position.set(worldX(c), getFloorY(c, r, l) + BLOCK * 0.125, worldZ(r));
     scene.add(mesh);
-    poopWalls.push({ c, r, l, mesh, hp: 3 });
+    poopWalls.push({ c, r, l, mesh, hp: 3, halfHeight: BLOCK * 0.125 });
     wombat.poopCooldown = 240;
     sfx('poop');
   }
@@ -1868,9 +1883,9 @@ function update() {
 function updateWombat(dt) {
   if (!wombat.mesh) return;
 
-  // Smooth interpolation; stand on the floor of the current layer, plus any dirt cube being stood on
+  // Smooth interpolation; stand on top of the voxel below the wombat
   const tx = worldX(wombat.c);
-  const ty = worldY(wombat.l) + BLOCK / 2 + getCubeHeight(wombat.c, wombat.r, wombat.l);
+  const ty = getFloorY(wombat.c, wombat.r, wombat.l);
   const tz = worldZ(wombat.r);
   wombat.mesh.position.x += (tx - wombat.mesh.position.x) * 0.25;
   wombat.mesh.position.y += (ty - wombat.mesh.position.y) * 0.25;
@@ -1889,17 +1904,18 @@ function updateWombat(dt) {
     return;
   }
 
-  // Carried item follows wombat
+  // Carried item follows wombat at mouth height
+  const mouthY = (wombat.mesh.userData.height || 1.5) * 0.85;
   if (carriedItem && carriedItem.mesh) {
     carriedItem.mesh.visible = true;
     carriedItem.mesh.position.copy(wombat.mesh.position);
-    carriedItem.mesh.position.y += 1.2;
+    carriedItem.mesh.position.y += mouthY;
   }
 
-  // Carried dirt cube follows wombat
+  // Carried dirt cube follows wombat slightly lower
   if (carriedCube && carriedCube.mesh) {
     carriedCube.mesh.position.copy(wombat.mesh.position);
-    carriedCube.mesh.position.y += 1.0;
+    carriedCube.mesh.position.y += mouthY * 0.75;
   }
 }
 
@@ -1940,7 +1956,7 @@ function checkDeliveries() {
 function updateHarry(dt) {
   // Update Harry's visual position (supports falling underground and being pushed)
   if (harry.group) {
-    const targetY = worldY(harry.l) + BLOCK / 2;
+    const targetY = getFloorY(harry.c, harry.r, harry.l);
     harry.group.position.x += (worldX(harry.c) - harry.group.position.x) * 0.15;
     harry.group.position.y += (targetY - harry.group.position.y) * 0.15;
     harry.group.position.z += (worldZ(harry.r) - harry.group.position.z) * 0.15;
@@ -2010,10 +2026,11 @@ function spawnThieves() {
   const cfg = LEVELS[levelIndex];
   cfg.thieves.forEach(type => {
     const side = Math.random() < 0.5 ? -1 : COLS;
+    const r = randInt(0, ROWS-1);
     const mesh = createThief(type);
-    mesh.position.set(worldX(side), SURFACE_Y + 0.5, worldZ(randInt(0, ROWS-1)));
+    mesh.position.set(worldX(side), getFloorY(side, r, SURFACE), worldZ(r));
     scene.add(mesh);
-    thieves.push({ type, c: side, r: randInt(0, ROWS-1), l: SURFACE, mesh, holding: null, timer: 0 });
+    thieves.push({ type, c: side, r, l: SURFACE, mesh, holding: null, timer: 0 });
   });
 }
 
@@ -2083,6 +2100,7 @@ function moveThiefToward(t, tc, tr, tl, speed) {
   }
 
   t.mesh.position.x += (worldX(t.c) - t.mesh.position.x) * 0.3;
+  t.mesh.position.y += (getFloorY(t.c, t.r, t.l) - t.mesh.position.y) * 0.3;
   t.mesh.position.z += (worldZ(t.r) - t.mesh.position.z) * 0.3;
 }
 
@@ -2280,7 +2298,7 @@ function updateBoulders() {
     }
   }
   for (const b of boulders) {
-    b.mesh.position.set(worldX(b.c) + BLOCK/2, worldY(b.l), worldZ(b.r) + BLOCK/2);
+    b.mesh.position.set(worldX(b.c) + BLOCK/2, getFloorY(b.c, b.r, b.l) + BLOCK * 0.7, worldZ(b.r) + BLOCK/2);
   }
 }
 
@@ -2308,7 +2326,7 @@ function updateAIWombat(dt) {
 
   // Smooth, slow movement so the AI looks like it is actually walking
   const tx = worldX(aiWombat.c);
-  const ty = worldY(aiWombat.l) + BLOCK / 2 + getCubeHeight(aiWombat.c, aiWombat.r, aiWombat.l);
+  const ty = getFloorY(aiWombat.c, aiWombat.r, aiWombat.l);
   const tz = worldZ(aiWombat.r);
   aiWombat.mesh.position.x += (tx - aiWombat.mesh.position.x) * 0.06;
   aiWombat.mesh.position.y += (ty - aiWombat.mesh.position.y) * 0.06;
@@ -2445,7 +2463,7 @@ function animate() {
       positions[1] = wombat.mesh.position.y + 1;
       positions[2] = wombat.mesh.position.z;
       positions[3] = worldX(nearest.c);
-      positions[4] = worldY(nearest.l);
+      positions[4] = getFloorY(nearest.c, nearest.r, nearest.l) + 0.5;
       positions[5] = worldZ(nearest.r);
       sniffLine.geometry.attributes.position.needsUpdate = true;
       sniffLine.visible = true;
