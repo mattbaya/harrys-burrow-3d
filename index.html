@@ -1589,7 +1589,8 @@ function handleKey(k) {
 
 function cubeInFront() {
   const fd = FACING_DIRS[wombat.facing];
-  return dirtCubeAt(wombat.c + fd.c, wombat.r + fd.r, wombat.l);
+  const l = wombat.l === SKY ? SURFACE : wombat.l;
+  return dirtCubeAt(wombat.c + fd.c, wombat.r + fd.r, l);
 }
 
 function pickupCube() {
@@ -1631,7 +1632,9 @@ function pushObject(dc, dr, dl) {
   // Shift + direction: push the object in front one cell; wombat does not move
   const nc = wombat.c + dc;
   const nr = wombat.r + dr;
-  const nl = wombat.l + dl;
+  let nl = wombat.l + dl;
+  // When hovering in the sky, the wombat interacts with objects on the surface
+  if (dl === 0 && wombat.l === SKY) nl = SURFACE;
   if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS || nl < 0 || nl >= LAYERS) return;
 
   // Harry first
