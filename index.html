@@ -244,6 +244,8 @@ let sceneReady = false;
 let wombatGeometry = null;
 let wombatBaseScale = 0;
 let wombatWorldHeight = 1.5;
+let shaftC = 0;
+let shaftR = 0;
 
 // Facing: 0=N (-r), 1=E (+c), 2=S (+r), 3=W (-c)
 // Angles are offset by PI because the wombat model's nose points toward +Z at rotation.y=0
@@ -1108,6 +1110,7 @@ function initLevel(idx) {
 
   // Starting shaft (stops above the bedrock floor)
   const sc = Math.floor(COLS/2), sr = Math.floor(ROWS/2);
+  shaftC = sc; shaftR = sr;
   for (let l = SKY; l < BEDROCK_LAYER; l++) {
     setTile(sc, sr, l, AIR);
     setTile(sc+1, sr, l, AIR);
@@ -1325,7 +1328,9 @@ function initLevel(idx) {
     targetC: 0,
     targetR: 0,
     dropC: 0,
-    dropR: 0
+    dropR: 0,
+    targetHole: null,
+    mischiefSteps: 0
   };
   aiWombat.mesh.position.set(worldX(aiWombat.c), getFloorY(aiWombat.c, aiWombat.r, aiWombat.l), worldZ(aiWombat.r));
   scene.add(aiWombat.mesh);
@@ -2470,6 +2475,66 @@ function aiMoveToward(obj, tc, tr) {
   return false;
 }
 
+function findSurfaceHoles() {
+  // Surface air cells that the player could fall through (not the starting shaft)
+  const holes = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (c >= shaftC - 1 && c <= shaftC + 2 && r >= shaftR - 1 && r <= shaftR + 2) continue; // skip starting shaft
+      if (tileAt(c, r, SURFACE) !== AIR) continue;
+      if (boulderOccupies(c, r, SURFACE)) continue;
+      if (rockAt(c, r, SURFACE)) continue;
+      if (dirtCubeAt(c, r, SURFACE)) continue;
+      if (poopWalls.some(w => w.c === c && w.r === r && w.l === SURFACE)) continue;
+      holes.push({ c, r });
+    }
+  }
+  return holes;
+}
+
+function pushableAt(c, r, l) {
+  if (l !== SURFACE && l !== SKY) return null;
+  const rock = rockAt(c, r, l);
+  if (rock) return { kind: 'rock', obj: rock };
+  const cube = dirtCubeAt(c, r, l);
+  if (cube) return { kind: 'cube', obj: cube };
+  const wall = poopWalls.find(w => w.c === c && w.r === r && w.l === l);
+  if (wall) return { kind: 'poop', obj: wall };
+  return null;
+}
+
+function aiPushObject(pushable, dc, dr) {
+  const obj = pushable.obj;
+  const bc = obj.c + dc, br = obj.r + dr, bl = obj.l;
+  if (bc < 0 || bc >= COLS || br < 0 || br >= ROWS || bl < 0 || bl >= LAYERS) return false;
+
+  if (pushable.kind === 'rock' || pushable.kind === 'cube') {
+    if (!canPushObjectTo(bc, br, bl)) return false;
+    const targetCube = dirtCubeAt(bc, br, bl);
+    obj.c = bc; obj.r = br; obj.l = bl;
+    obj.under = targetCube || null;
+    obj.onCube = !!targetCube;
+    setObjectPosition(obj);
+    if (pushable.kind === 'cube') fillHole(bc, br, bl);
+    return true;
+  }
+
+  if (pushable.kind === 'poop') {
+    // Poop walls can be shoved into an adjacent open surface/air cell
+    if (bl === SKY) return false;
+    if (tileAt(bc, br, bl) === BEDROCK) return false;
+    if (tileAt(bc, br, bl) === DIRT && bl > SURFACE) return false;
+    if (boulderOccupies(bc, br, bl)) return false;
+    if (rockAt(bc, br, bl)) return false;
+    if (dirtCubeAt(bc, br, bl)) return false;
+    if (poopWalls.some(w => w.c === bc && w.r === br && w.l === bl)) return false;
+    obj.c = bc; obj.r = br; obj.l = bl;
+    setObjectPosition(obj);
+    return true;
+  }
+  return false;
+}
+
 function updateAIWombat(dt) {
   if (!aiWombat.mesh) return;
 
@@ -2491,6 +2556,16 @@ function updateAIWombat(dt) {
 
   switch (aiWombat.state) {
     case 'idle': {
+      // Random quirk: sometimes try to push rocks/dirt/poop into player-dug holes
+      if (Math.random() < 0.3) {
+        const holes = findSurfaceHoles();
+        if (holes.length > 0) {
+          aiWombat.targetHole = holes.reduce((best, h) => aiDistance(h, aiWombat) < aiDistance(best, aiWombat) ? h : best, holes[0]);
+          aiWombat.mischiefSteps = 0;
+          aiWombat.state = 'mischief';
+          break;
+        }
+      }
       // Pick a target loose rock on the surface or sky
       const looseRocks = rocks.filter(r => r.l === SURFACE || r.l === SKY);
       if (looseRocks.length > 0) {
@@ -2506,6 +2581,42 @@ function updateAIWombat(dt) {
           aiWombat.facing = FACING_DIRS.indexOf(dir);
         }
       }
+      break;
+    }
+
+    case 'mischief': {
+      if (!aiWombat.targetHole || aiWombat.mischiefSteps > 10) {
+        aiWombat.targetHole = null;
+        aiWombat.state = 'idle';
+        break;
+      }
+      aiWombat.mischiefSteps++;
+
+      // If standing next to a pushable object, shove it toward the hole
+      let pushed = false;
+      for (let i = 0; i < FACING_DIRS.length; i++) {
+        const d = FACING_DIRS[i];
+        const pushable = pushableAt(aiWombat.c + d.c, aiWombat.r + d.r, aiWombat.l);
+        if (!pushable) continue;
+        const distBefore = Math.abs(pushable.obj.c - aiWombat.targetHole.c) + Math.abs(pushable.obj.r - aiWombat.targetHole.r);
+        const distAfter = Math.abs(pushable.obj.c + d.c - aiWombat.targetHole.c) + Math.abs(pushable.obj.r + d.r - aiWombat.targetHole.r);
+        if (distAfter < distBefore && aiPushObject(pushable, d.c, d.r)) {
+          aiWombat.facing = i;
+          pushed = true;
+          break;
+        }
+      }
+
+      if (pushed) {
+        sfx('dig');
+        aiWombat.targetHole = null;
+        aiWombat.state = 'idle';
+        break;
+      }
+
+      // No pushable object in a useful direction; inch closer to the hole
+      const moved = aiMoveToward(aiWombat, aiWombat.targetHole.c, aiWombat.targetHole.r);
+      if (!moved) aiWombat.state = 'idle';
       break;
     }
 
