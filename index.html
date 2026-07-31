@@ -1955,8 +1955,9 @@ function canHarryEnter(c, r, l) {
   return true;
 }
 function canHarryWanderTo(c, r, l) {
-  // Harry wanders horizontally at his current layer. He can walk onto dirt-cube ramps,
-  // but cannot climb up a full block on his own.
+  // Harry only moves horizontally on his own. He cannot climb up or down ramps
+  // or get out of a hole by himself; the wombat must push him.
+  if (l !== harry.l) return false;
   if (!canHarryEnter(c, r, l)) return false;
   if (treeAt(c, r, l)) return false;
   return true;
@@ -2006,34 +2007,40 @@ function tryPushDirtCube(cube, dc, dr, dl) {
   return true;
 }
 
-function spawnDigCubes(c, r, l) {
+function spawnDigCubes(c, r, l, dc, dr, dl) {
   // Digging a full block produces exactly 4 small dirt cubes.
-  // Each cube tries to occupy one of the four cardinal neighbor cells at the same layer.
-  // Any that can't fit are stacked in the dug cell.
-  const cardinals = [
-    { c: c, r: r - 1 }, // north
-    { c: c + 1, r: r }, // east
-    { c: c, r: r + 1 }, // south
-    { c: c - 1, r: r }  // west
-  ];
+  // The wombat always kicks them somewhere: behind first, then down, then up,
+  // then any other horizontal neighbor. Anything still left is stacked in the
+  // dug cell. Cubes kicked into the air (e.g. "up") will fall on the next update.
+  const candidates = [];
+  // 1) behind the wombat (opposite to movement)
+  candidates.push({ c: c - dc, r: r - dr, l: l - dl });
+  // 2) down
+  candidates.push({ c: c, r: r, l: l + 1 });
+  // 3) up
+  candidates.push({ c: c, r: r, l: l - 1 });
+  // 4) other horizontal neighbors
+  const horiz = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  for (const [hc, hr] of horiz) {
+    if (hc === -dc && hr === -dr) continue; // already tried "behind"
+    candidates.push({ c: c + hc, r: r + hr, l: l });
+  }
+
   const spawned = [];
-  let remaining = 4;
-  for (const p of cardinals) {
-    if (remaining <= 0) break;
-    if (canPlaceDirtCube(p.c, p.r, l)) {
-      const cube = { c: p.c, r: p.r, l: l, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
+  for (const p of candidates) {
+    if (spawned.length >= 4) break;
+    if (canPlaceDirtCube(p.c, p.r, p.l)) {
+      const cube = { c: p.c, r: p.r, l: p.l, mesh: createDirtCube(), onCube: false, under: null, halfHeight: BLOCK * 0.125 };
       setObjectPosition(cube);
       scene.add(cube.mesh);
       dirtCubes.push(cube);
       spawned.push(cube);
-      remaining--;
     }
   }
-  // Stack remaining cubes in the dug cell itself
-  let under = null;
-  const existing = dirtCubeAt(c, r, l);
-  if (existing) under = existing;
-  for (let i = 0; i < remaining; i++) {
+
+  // Stack any remaining cubes in the dug cell itself (there is always room to stack)
+  let under = dirtCubeAt(c, r, l) || null;
+  while (spawned.length < 4) {
     const cube = { c: c, r: r, l: l, mesh: createDirtCube(), onCube: !!under, under: under, halfHeight: BLOCK * 0.125 };
     setObjectPosition(cube);
     scene.add(cube.mesh);
@@ -2045,11 +2052,9 @@ function spawnDigCubes(c, r, l) {
 }
 
 function digAndDisplace(nc, nr, nl, dc, dr, dl, digColor) {
-  const spawned = spawnDigCubes(nc, nr, nl);
-  if (spawned.length === 0) {
-    showMessage('No room to displace dirt!');
-    return false;
-  }
+  const spawned = spawnDigCubes(nc, nr, nl, dc, dr, dl);
+  // spawnDigCubes always creates 4 cubes, so this should never happen.
+  if (spawned.length === 0) return false;
   setTile(nc, nr, nl, AIR);
   removeBlockMesh(nc, nr, nl);
   checkHarryFall(nc, nr, nl);
@@ -2533,13 +2538,7 @@ function harryPlaceCarrying(c, r, l) {
 }
 
 function harryMoveToward(tc, tr, tl) {
-  tl = tl === undefined ? null : tl;
-  // Climb up if target layer is above
-  if (tl !== null && tl < harry.l && canHarryEnter(harry.c, harry.r, harry.l - 1)) {
-    harry.l--;
-    settleHarry();
-    return true;
-  }
+  // tl is ignored for movement: Harry only moves horizontally on his own.
   const dc = Math.sign(tc - harry.c);
   const dr = Math.sign(tr - harry.r);
   if (dc !== 0 && canHarryWanderTo(harry.c + dc, harry.r, harry.l)) {
@@ -2630,7 +2629,7 @@ function harryProjectTick() {
         const targetR = harry.rampStartR + harry.rampDir.r * harry.rampStep;
         const targetL = harry.l + harry.rampStep;
         if (targetL >= LAYERS) { harry.project = 'wander'; break; }
-        if (harry.c === targetC && harry.r === targetR && harry.l === targetL) {
+        if (harry.c === targetC && harry.r === targetR) {
           harryPlaceCarrying(targetC, targetR, targetL);
           harry.rampStep++;
         } else {
