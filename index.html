@@ -2826,7 +2826,9 @@ function updateAIWombat(dt) {
 
       // If already lined up behind Harry, push him toward the hole
       if (aiWombat.c === targetC && aiWombat.r === targetR && (dx !== 0 || dz !== 0)) {
-        if (aiPushHarry({ c: -dx, r: -dz, l: 0 })) {
+        const pushDir = { c: -dx, r: -dz, l: 0 };
+        if (aiPushHarry(pushDir)) {
+          aiWombat.facing = FACING_DIRS.findIndex(d => d.c === pushDir.c && d.r === pushDir.r);
           showMessage('The AI wombat pushed Harry toward a hole!');
           sfx('hit');
         }
@@ -2924,12 +2926,12 @@ function updateAIWombat(dt) {
     }
   }
 
-  // Face movement direction roughly
+  // Face movement direction
   const targetAngle = FACING_ANGLES[aiWombat.facing];
   let angleDiff = targetAngle - aiWombat.mesh.rotation.y;
   while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
   while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-  aiWombat.mesh.rotation.y += angleDiff * 0.08;
+  aiWombat.mesh.rotation.y += angleDiff * 0.25;
 }
 
 function updateUI() {
