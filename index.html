@@ -1193,13 +1193,17 @@ function initLevel(idx) {
     }
   }
 
-  // Items: one may hide in a tree, rest are buried underground
-  const treeItemType = cfg.items.length > 0 ? cfg.items[randInt(0, cfg.items.length - 1)] : null;
+  // Items: some stuck in tree branches, the rest buried underground
+  const availableTrees = trees.slice();
+  const shuffledTypes = cfg.items.slice().sort(() => Math.random() - 0.5);
+  const maxTreeItems = Math.min(2, shuffledTypes.length, availableTrees.length);
+  const treeItemTypes = new Set(shuffledTypes.slice(0, maxTreeItems));
   cfg.items.forEach((type, idx) => {
     let c, r, l, inTree = false, attempts = 0;
     let treeOffset = null;
-    if (type === treeItemType && trees.length > 0) {
-      const tree = trees[randInt(0, trees.length - 1)];
+    if (treeItemTypes.has(type) && availableTrees.length > 0) {
+      const treeIdx = availableTrees.length === 1 ? 0 : randInt(0, availableTrees.length - 1);
+      const tree = availableTrees.splice(treeIdx, 1)[0];
       tree.itemType = type;
       tree.hasItem = true;
       c = tree.c; r = tree.r; l = SURFACE; inTree = true;
