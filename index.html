@@ -241,6 +241,8 @@ let carriedCube = null;
 let boplist = [];
 let sniffLine = null;
 let sceneReady = false;
+let wombatGeometry = null;
+let wombatBaseScale = 0;
 
 // Facing: 0=N (-r), 1=E (+c), 2=S (+r), 3=W (-c)
 // Angles are offset by PI because the wombat model's nose points toward +Z at rotation.y=0
@@ -344,9 +346,14 @@ function dirtCubeAt(c, r, l) {
 function getCubeHeight(c, r, l) {
   return dirtCubeAt(c, r, l) ? BLOCK * 0.25 : 0;
 }
-function treeTrunkAt(c, r, l) {
-  if (l !== SURFACE) return false;
-  return trees.some(t => t.c === c && t.r === r);
+function treeAt(c, r, l) {
+  // Trees occupy a circular footprint on the sky and surface layers
+  if (l > SURFACE) return false;
+  return trees.some(t => {
+    const dx = c - t.c;
+    const dy = r - t.r;
+    return dx * dx + dy * dy <= t.radius * t.radius;
+  });
 }
 function boulderOccupies(c, r, l) {
   return boulders.some(b => b.l === l && b.cells.some(cell => cell[0] === c && cell[1] === r));
@@ -365,7 +372,7 @@ function isPassable(c, r, l, ignoreRocks=false) {
   if (!ignoreRocks && rockAt(c, r, l)) return false;
   if (dirtCubeAt(c, r, l)) return false;
   if (poopWalls.some(w => w.c === c && w.r === r && w.l === l)) return false;
-  if (treeTrunkAt(c, r, l)) return false;
+  if (treeAt(c, r, l)) return false;
   return true;
 }
 function canPlaceDirtCube(c, r, l) {
@@ -624,6 +631,39 @@ function setWombatMesh(mesh) {
   document.getElementById('loading').style.display = 'none';
 }
 
+function setAIWombatMesh(mesh) {
+  const oldPos = aiWombat.mesh ? aiWombat.mesh.position.clone() : null;
+  const oldRot = aiWombat.mesh ? aiWombat.mesh.rotation.clone() : null;
+  if (aiWombat.mesh) scene.remove(aiWombat.mesh);
+  aiWombat.mesh = mesh;
+  if (oldPos) aiWombat.mesh.position.copy(oldPos);
+  if (oldRot) aiWombat.mesh.rotation.copy(oldRot);
+  scene.add(aiWombat.mesh);
+}
+
+function createWombatMesh(color, sizeFactor) {
+  const group = new THREE.Group();
+  if (wombatGeometry && wombatBaseScale) {
+    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+    const mesh = new THREE.Mesh(wombatGeometry, mat);
+    const s = wombatBaseScale * sizeFactor;
+    mesh.scale.set(s, s, s);
+    mesh.castShadow = true;
+    group.add(mesh);
+  } else {
+    const fallback = createFallbackWombat();
+    fallback.traverse(o => {
+      if (o.isMesh && o.material) {
+        o.material = o.material.clone();
+        o.material.color.setHex(color);
+      }
+    });
+    fallback.scale.set(sizeFactor, sizeFactor, sizeFactor);
+    group.add(fallback);
+  }
+  return group;
+}
+
 function loadWombat() {
   const loadingEl = document.getElementById('loading');
   loadingEl.style.display = 'block';
@@ -661,13 +701,17 @@ function loadWombat() {
       // Put the bottom of the model at y=0 so it stands on the floor
       geometry.translate(0, size.y / 2, 0);
       const maxDim = Math.max(size.x, size.y, size.z);
-      const scale = 2.2 / maxDim;
+      wombatBaseScale = 2.2 / maxDim;
+      wombatGeometry = geometry;
 
       const mat = new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.9 });
       const mesh = new THREE.Mesh(geometry, mat);
-      mesh.scale.set(scale, scale, scale);
+      mesh.scale.set(wombatBaseScale, wombatBaseScale, wombatBaseScale);
       mesh.castShadow = true;
       setWombatMesh(mesh);
+
+      // Upgrade the AI wombat to the real model too if it already exists
+      if (aiWombat.mesh) setAIWombatMesh(createWombatMesh(0x1a3c6e, 0.9));
     } catch (err) {
       showError('Wombat STL parsed but failed to build mesh: ' + err.message);
       setWombatMesh(createFallbackWombat());
@@ -874,20 +918,31 @@ function createPoopWall() {
 }
 
 // Trees
-function createTreeMesh() {
+function createTreeMesh(height) {
+  // Trees are big tapered cones: base diameter == height (in blocks)
+  const radius = (height / 2) * BLOCK;
+  const treeHeight = height * BLOCK;
   const group = new THREE.Group();
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 1.0 });
   const leafMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 0.9 });
 
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, BLOCK * 0.8, 8), trunkMat);
-  trunk.position.y = BLOCK * 0.4;
+  // Trunk (tapered cylinder, wide at the bottom)
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.25, radius * 0.55, treeHeight * 0.25, 16), trunkMat);
+  trunk.position.y = (treeHeight * 0.25) / 2;
   trunk.castShadow = true;
   group.add(trunk);
 
-  const leaves = new THREE.Mesh(new THREE.ConeGeometry(BLOCK * 0.7, BLOCK * 1.2, 12), leafMat);
-  leaves.position.y = BLOCK * 1.0;
-  leaves.castShadow = true;
-  group.add(leaves);
+  // Main foliage cone
+  const foliage = new THREE.Mesh(new THREE.ConeGeometry(radius, treeHeight * 0.85, 24), leafMat);
+  foliage.position.y = treeHeight * 0.25 + (treeHeight * 0.85) / 2;
+  foliage.castShadow = true;
+  group.add(foliage);
+
+  // Top cap cone for detail
+  const top = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.55, treeHeight * 0.35, 24), leafMat);
+  top.position.y = treeHeight * 0.55 + (treeHeight * 0.35) / 2;
+  top.castShadow = true;
+  group.add(top);
 
   return group;
 }
@@ -1000,19 +1055,37 @@ function initLevel(idx) {
   }
 
   // Trees on random grass cells (not in starting area)
-  const treeCount = randInt(3, 5);
+  // Big trees: 3–5 blocks tall, base diameter == height, so they occupy a circular footprint
+  const treeCount = randInt(2, 4);
   for (let i = 0; i < treeCount; i++) {
+    const height = randInt(3, 5);
+    const radius = height / 2;
     let c, r, attempts = 0;
+    let fits = false;
     do {
-      c = randInt(1, COLS-2);
-      r = randInt(1, ROWS-2);
+      c = randInt(Math.ceil(radius) + 1, COLS - 2 - Math.ceil(radius));
+      r = randInt(Math.ceil(radius) + 1, ROWS - 2 - Math.ceil(radius));
       attempts++;
-    } while ((grid[SURFACE][r][c] !== DIRT || treeTrunkAt(c, r, SURFACE) || (c >= sc-1 && c <= sc+2 && r >= sr-1 && r <= sr+2)) && attempts < 200);
-    if (attempts < 200) {
-      const mesh = createTreeMesh();
-      mesh.position.set(worldX(c), worldY(SURFACE) + BLOCK/2, worldZ(r));
+      // Make sure the whole circular footprint is on grass and clear of the starting shaft and other trees
+      fits = true;
+      for (let dc = -Math.ceil(radius); dc <= Math.ceil(radius) && fits; dc++) {
+        for (let dr = -Math.ceil(radius); dr <= Math.ceil(radius) && fits; dr++) {
+          const cc = c + dc, rr = r + dr;
+          if (dc * dc + dr * dr > radius * radius) continue;
+          if (cc < 0 || cc >= COLS || rr < 0 || rr >= ROWS) { fits = false; break; }
+          if (grid[SURFACE][rr][cc] !== DIRT) fits = false;
+          if (cc >= sc - 2 && cc <= sc + 3 && rr >= sr - 2 && rr <= sr + 3) fits = false;
+          if (treeAt(cc, rr, SURFACE)) fits = false;
+        }
+      }
+    } while (!fits && attempts < 200);
+    if (fits) {
+      const mesh = createTreeMesh(height);
+      // Sit the tree on the floor of the surface layer
+      const floorY = worldY(SURFACE) - BLOCK / 2;
+      mesh.position.set(worldX(c), floorY, worldZ(r));
       scene.add(mesh);
-      trees.push({ c, r, l: SURFACE, mesh, itemType: null, hasItem: false });
+      trees.push({ c, r, l: SURFACE, height, radius, mesh, itemType: null, hasItem: false });
     }
   }
 
@@ -1115,22 +1188,16 @@ function initLevel(idx) {
     r: randInt(1, ROWS-2),
     l: SKY,
     facing: 0,
-    mesh: createFallbackWombat(),
+    mesh: createWombatMesh(0x1a3c6e, 0.9),
     state: 'idle',
     timer: 0,
+    thinkTimer: 0,
     carrying: null,
     targetC: 0,
     targetR: 0,
     dropC: 0,
     dropR: 0
   };
-  aiWombat.mesh.scale.set(0.9, 0.9, 0.9);
-  aiWombat.mesh.traverse(o => {
-    if (o.isMesh && o.material) {
-      o.material = o.material.clone();
-      o.material.color.setHex(0xa08060);
-    }
-  });
   aiWombat.mesh.position.set(worldX(aiWombat.c), SURFACE_Y, worldZ(aiWombat.r));
   scene.add(aiWombat.mesh);
   aiWombat.dropC = COLS - 2;
@@ -1406,7 +1473,7 @@ function canHarryWanderTo(c, r, l) {
   // Wandering Harry is blocked by dirt-cube walls, poop walls, and trees, but will stumble into holes.
   if (!canHarryEnter(c, r, l)) return false;
   if (dirtCubeAt(c, r, l)) return false;
-  if (treeTrunkAt(c, r, l)) return false;
+  if (treeAt(c, r, l)) return false;
   return true;
 }
 
@@ -1555,7 +1622,7 @@ function tryMove() {
       sfx('hit');
       return;
     }
-    if (treeTrunkAt(nc, nr, SURFACE)) {
+    if (treeAt(nc, nr, SURFACE)) {
       showMessage('A tree blocks the way');
       sfx('hit');
       return;
@@ -1655,16 +1722,24 @@ function revealItems(c, r, l) {
 }
 
 function checkTreeItems() {
-  // Reveal tree items when the wombat stands on a dirt cube at the tree's cell
+  // Reveal tree items when the wombat is next to the tree and standing on a dirt cube ramp
   trees.forEach(tree => {
     if (!tree.hasItem) return;
     const item = items.find(i => i.inTree && i.type === tree.itemType && !i.found);
     if (!item) return;
-    const cubeHere = dirtCubeAt(tree.c, tree.r, SURFACE);
-    if (cubeHere && Math.round(wombat.c) === tree.c && Math.round(wombat.r) === tree.r && wombat.l === SURFACE) {
+    const dx = wombat.c - tree.c;
+    const dy = wombat.r - tree.r;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // Wombat must be within the tree's canopy reach and standing on a placed dirt cube
+    const cubeHere = dirtCubeAt(wombat.c, wombat.r, wombat.l);
+    if (cubeHere && dist <= tree.radius + 1.5 && wombat.l === SURFACE) {
       item.found = true;
-      item.mesh.visible = true;
       item.inTree = false;
+      // Drop the item right where the wombat is standing
+      item.c = wombat.c; item.r = wombat.r; item.l = wombat.l;
+      item.onCube = true; item.under = cubeHere;
+      setItemPosition(item);
+      item.mesh.visible = true;
       showMessage('Found ' + ITEM_CATALOG[item.type].name + ' in the tree!');
     }
   });
@@ -2218,31 +2293,37 @@ function aiMoveToward(obj, tc, tr) {
   const dr = Math.sign(tr - obj.r);
   if (dc !== 0 && isPassable(obj.c + dc, obj.r, obj.l)) {
     obj.c += dc;
+    obj.facing = dc > 0 ? 1 : 3;
+    return true;
   } else if (dr !== 0 && isPassable(obj.c, obj.r + dr, obj.l)) {
     obj.r += dr;
+    obj.facing = dr > 0 ? 2 : 0;
+    return true;
   }
+  return false;
 }
 
 function updateAIWombat(dt) {
   if (!aiWombat.mesh) return;
 
-  // Visual position
+  // Smooth, slow movement so the AI looks like it is actually walking
   const tx = worldX(aiWombat.c);
   const ty = worldY(aiWombat.l) + BLOCK / 2 + getCubeHeight(aiWombat.c, aiWombat.r, aiWombat.l);
   const tz = worldZ(aiWombat.r);
-  aiWombat.mesh.position.x += (tx - aiWombat.mesh.position.x) * 0.2;
-  aiWombat.mesh.position.y += (ty - aiWombat.mesh.position.y) * 0.2;
-  aiWombat.mesh.position.z += (tz - aiWombat.mesh.position.z) * 0.2;
+  aiWombat.mesh.position.x += (tx - aiWombat.mesh.position.x) * 0.06;
+  aiWombat.mesh.position.y += (ty - aiWombat.mesh.position.y) * 0.06;
+  aiWombat.mesh.position.z += (tz - aiWombat.mesh.position.z) * 0.06;
 
   // Keep the AI on sky/surface for simplicity
   if (aiWombat.l > SURFACE) aiWombat.l = SURFACE;
 
-  aiWombat.timer -= dt;
-  if (aiWombat.timer > 0) return;
-  aiWombat.timer = 0.5;
+  // The AI pauses to "think" before each action
+  aiWombat.thinkTimer -= dt;
+  if (aiWombat.thinkTimer > 0) return;
+  aiWombat.thinkTimer = 1.0 + Math.random() * 0.5;
 
   switch (aiWombat.state) {
-    case 'idle':
+    case 'idle': {
       // Pick a target loose rock on the surface or sky
       const looseRocks = rocks.filter(r => r.l === SURFACE || r.l === SKY);
       if (looseRocks.length > 0) {
@@ -2255,28 +2336,32 @@ function updateAIWombat(dt) {
         const dir = FACING_DIRS[randInt(0, 3)];
         if (isPassable(aiWombat.c + dir.c, aiWombat.r + dir.r, aiWombat.l)) {
           aiWombat.c += dir.c; aiWombat.r += dir.r;
+          aiWombat.facing = FACING_DIRS.indexOf(dir);
         }
       }
       break;
+    }
 
-    case 'fetch':
+    case 'fetch': {
       if (!aiWombat.carrying || !rocks.includes(aiWombat.carrying)) {
         aiWombat.carrying = null;
         aiWombat.state = 'idle';
         break;
       }
-      aiMoveToward(aiWombat, aiWombat.carrying.c, aiWombat.carrying.r);
       if (aiWombat.c === aiWombat.carrying.c && aiWombat.r === aiWombat.carrying.r) {
         aiWombat.state = 'deliver';
+      } else {
+        const moved = aiMoveToward(aiWombat, aiWombat.carrying.c, aiWombat.carrying.r);
+        if (!moved) aiWombat.state = 'idle'; // stuck, pick a new target
       }
       break;
+    }
 
-    case 'deliver':
+    case 'deliver': {
       if (!aiWombat.carrying) {
         aiWombat.state = 'idle';
         break;
       }
-      aiMoveToward(aiWombat, aiWombat.dropC, aiWombat.dropR);
       // Carry the rock visually with the AI
       aiWombat.carrying.c = aiWombat.c;
       aiWombat.carrying.r = aiWombat.r;
@@ -2285,8 +2370,12 @@ function updateAIWombat(dt) {
       if (aiWombat.c === aiWombat.dropC && aiWombat.r === aiWombat.dropR) {
         aiWombat.carrying = null;
         aiWombat.state = 'idle';
+      } else {
+        const moved = aiMoveToward(aiWombat, aiWombat.dropC, aiWombat.dropR);
+        if (!moved) aiWombat.state = 'idle'; // stuck, drop and rethink
       }
       break;
+    }
   }
 
   // Face movement direction roughly
@@ -2294,7 +2383,7 @@ function updateAIWombat(dt) {
   let angleDiff = targetAngle - aiWombat.mesh.rotation.y;
   while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
   while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-  aiWombat.mesh.rotation.y += angleDiff * 0.1;
+  aiWombat.mesh.rotation.y += angleDiff * 0.08;
 }
 
 function updateUI() {
