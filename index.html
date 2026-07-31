@@ -2535,6 +2535,18 @@ function aiPushObject(pushable, dc, dr) {
   return false;
 }
 
+function aiDig(c, r, l) {
+  // AI-only surface dig used for the "dig under Harry" quirk
+  if (l !== SURFACE) return false;
+  if (tileAt(c, r, l) !== DIRT) return false;
+  setTile(c, r, l, AIR);
+  removeBlockMesh(c, r, l);
+  checkHarryFall(c, r, l);
+  sfx('dig');
+  spawnParticles(c, r, l, 0x7a5c3c, 6);
+  return true;
+}
+
 function aiPushHarry(fd) {
   // AI-only version of pushing Harry one cell (no lifting logic)
   const nc = harry.c + fd.c;
@@ -2571,10 +2583,15 @@ function updateAIWombat(dt) {
 
   switch (aiWombat.state) {
     case 'idle': {
-      // Rare dark quirk: push Harry into a hole and bury him
-      if (Math.random() < 0.06 && harry.state === 'present' && !harry.fallen) {
+      // Rare dark quirks targeting Harry
+      if (Math.random() < 0.05 && harry.state === 'present' && !harry.fallen) {
         aiWombat.mischiefSteps = 0;
         aiWombat.state = 'harryMischief';
+        break;
+      }
+      if (Math.random() < 0.04 && harry.state === 'present' && !harry.fallen) {
+        aiWombat.mischiefSteps = 0;
+        aiWombat.state = 'digUnderHarry';
         break;
       }
       // Random quirk: sometimes try to push rocks/dirt/poop into player-dug holes
@@ -2697,6 +2714,34 @@ function updateAIWombat(dt) {
         const moved = aiMoveToward(aiWombat, harry.c, harry.r);
         if (!moved) aiWombat.state = 'idle';
       }
+      break;
+    }
+
+    case 'digUnderHarry': {
+      if (aiWombat.mischiefSteps > 15 || harry.state !== 'present' || harry.fallen) {
+        aiWombat.state = 'idle';
+        break;
+      }
+      aiWombat.mischiefSteps++;
+
+      // Drop from sky to surface so we can dig
+      if (aiWombat.l === SKY) {
+        aiWombat.l = SURFACE;
+        break;
+      }
+
+      // Move onto Harry's cell
+      if (aiWombat.c !== harry.c || aiWombat.r !== harry.r) {
+        const moved = aiMoveToward(aiWombat, harry.c, harry.r);
+        if (!moved) aiWombat.state = 'idle';
+        break;
+      }
+
+      // Dig the grass block Harry is standing on
+      if (aiDig(aiWombat.c, aiWombat.r, SURFACE)) {
+        showMessage('The AI wombat dug a hole under Harry!');
+      }
+      aiWombat.state = 'idle';
       break;
     }
 
