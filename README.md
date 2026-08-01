@@ -25,8 +25,11 @@ Or open `index.html` directly in a modern browser.
 | `Space` | Pick up / drop an item or dirt cube |
 | `P` | Stash item in pouch / take item out |
 | `Shift` + direction | Push a chain of up to 6 rocks, dirt cubes, or found items |
-| `E` | Drop a cube-shaped poop wall behind you |
 | Camera panel | Toggle "Follow AI Wombat" to swap the camera target |
+
+| Ability | Effect |
+|---------|--------|
+| `E` | Drop a cube-shaped poop wall behind you |
 | `Q` | Sniff radar — points to the nearest item |
 | `R` | Call Harry back when he wanders off |
 
