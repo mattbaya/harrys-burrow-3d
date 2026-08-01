@@ -7,13 +7,14 @@ This directory is a standalone mini-repo for the Harry's Burrow 3D browser game.
 ```
 web_content/harrys-burrow-3d/
 ├── index.html   # entire game (HTML, CSS, Three.js code)
+├── models/      # external GLB/glTF assets (wombat, Harry, trees)
 ├── README.md    # human-facing quick start
 └── CLAUDE.md    # this file
 ```
 
 ## Architecture
 
-- Single-file game using Three.js (loaded from CDN), plus GLTFLoader and OBJLoader for realistic models.
+- Single-file game using Three.js (loaded from CDN), plus GLTFLoader for realistic models.
 - Grid-based world:
   - `l = 0` — sky layer (empty, walkable without digging)
   - `l = 1` — surface grass (diggable)
@@ -21,7 +22,7 @@ web_content/harrys-burrow-3d/
   - `l = 8` — bedrock floor
 - Each logical dirt block is rendered as one big mesh but is conceptually composed of 8 small cubes (2×2×2). Digging a block spawns 4 small dirt cubes in the cardinal neighbor cells.
 - The player (wombat), Harry, thieves, and the AI wombat live on the grid.
-- Objects (items, rocks, dirt cubes, boulders, trees, poop walls) are stored in arrays and rendered as Three.js meshes.
+- The player wombat, Harry, and trees are loaded GLB/glTF models from `models/`; everything else (items, rocks, dirt cubes, boulders, poop walls) is procedural.
 
 ## Key constants
 
@@ -58,10 +59,11 @@ python3 -m http.server 8000
 
 ## Deployment
 
-Copy `index.html` to the live directory:
+Copy the game file and the `models/` directory to the live directory:
 
 ```bash
-cp index.html ~/phred.boppers.net/harrys-burrow-3d/index.html
+cp index.html README.md CLAUDE.md ~/phred.boppers.net/harrys-burrow-3d/
+cp -r models/ ~/phred.boppers.net/harrys-burrow-3d/
 ```
 
 Live URL: https://phred.boppers.net/harrys-burrow-3d/
@@ -69,7 +71,8 @@ Live URL: https://phred.boppers.net/harrys-burrow-3d/
 ## Conventions
 
 - Keep the game in one file unless it becomes unwieldy.
-- External assets (GLTF/OBJ) are loaded from CDN loaders with procedural fallbacks; no build tools or bundlers.
+- External 3D models (GLB/glTF) live in `models/` and are loaded via GLTFLoader; procedural fallbacks are used if a model fails to load.
+- No build tools or bundlers.
 - When changing mechanics, update this file and `README.md` if the public interface changes.
 
 ## Things that are intentionally rough / easy to extend
