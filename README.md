@@ -43,7 +43,7 @@ Or open `index.html` directly in a modern browser.
 - **Harry**: he gets bored and wanders, but now also picks his own projects — building towers, building ramps, chasing the AI wombat, or just wandering. He is not very aware and can fall into holes. Build dirt-cube walls around holes to keep him safe.
 - **Filling holes**: drop or push a dirt cube into a dug surface hole to patch it.
 - **Trees**: some items are hidden in trees; build a ramp of dirt cubes to reach them. Trees use a realistic glTF model.
-- **Models**: Harry uses a full-body GLB model (`models/old_man_cartoon_character_with_2k_textures.glb`). The wombat uses a GLB model. Trees, Harry, and the wombat are loaded at runtime; rocks, dirt cubes, items, and poop walls remain procedural.
+- **Models**: Harry uses a full-body GLB model (`models/harry/old_man_cartoon.glb`), trees use a glTF model (`models/tree/tree.gltf`), and the wombat uses a shared STL model (`../../demos/models/wombat.stl`). Rocks, dirt cubes, items, and poop walls remain procedural.
 - **Boulders**: large 2×2 rocks that cannot be pushed; they fall if you dig out everything underneath them.
 - **AI wombat**: a second autonomous wombat roams the map collecting rocks and occasionally dropping blue poop walls that only it can move.
 
