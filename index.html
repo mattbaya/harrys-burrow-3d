@@ -2101,9 +2101,17 @@ function tryMove() {
       return;
     }
     if (wombat.l > SURFACE && dl === -1) {
-      // Climb up one underground layer
-      if (isPassable(wombat.c, wombat.r, wombat.l - 1)) {
-        moveWombatTo(wombat.c, wombat.r, wombat.l - 1);
+      // Climb/dig up one underground layer
+      const targetL = wombat.l - 1;
+      if (targetL < SURFACE) {
+        showMessage('Use I at the surface to climb back to the sky.');
+        return;
+      }
+      const t = tileAt(wombat.c, wombat.r, targetL);
+      if (t === DIRT) {
+        digAndDisplace(wombat.c, wombat.r, targetL, 0, 0, -1, 0xa07040);
+      } else if (isPassable(wombat.c, wombat.r, targetL)) {
+        moveWombatTo(wombat.c, wombat.r, targetL);
       }
       return;
     }
