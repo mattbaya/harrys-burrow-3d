@@ -263,7 +263,8 @@ let carriedItem = null;
 let pouchItem = null;
 let carriedCube = null;
 let boplist = [];
-let harryHeadMesh = null;
+let harryGLBMesh = null;
+let harryAnimMixers = [];
 let treeModel = null;
 let treeModelLoading = false;
 let treeModelLoaded = false;
@@ -814,216 +815,84 @@ function loadWombat() {
 // Harry
 function makeHarry() {
   const group = new THREE.Group();
+
+  // Simple primitive fallback figure while the GLB loads
+  const fallback = new THREE.Group();
+  fallback.name = 'harryFallback';
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xf5cda2, roughness: 0.6 });
-  const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.8 });
   const shirtMat = new THREE.MeshStandardMaterial({ color: 0x87ceeb, roughness: 0.7 });
   const pantMat = new THREE.MeshStandardMaterial({ color: 0x3e4a5e, roughness: 0.8 });
-  const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
-  const woodMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
-  const capMat = new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.8 });
-
-  // Rounded torso
-  const torsoGeo = new THREE.CylinderGeometry(0.62, 0.78, 2.0, 18);
-  const body = new THREE.Mesh(torsoGeo, shirtMat);
-  body.position.y = 1.85;
-  body.castShadow = true;
-  group.add(body);
-
-  // Shirt collar
-  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.06, 8, 18), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-  collar.position.set(0, 2.82, 0);
-  collar.rotation.x = Math.PI / 2;
-  group.add(collar);
-
-  // Neck
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 0.45, 12), skinMat);
-  neck.position.y = 3.05;
-  group.add(neck);
-
-  // Head (primitive sphere; replaced by OBJ bust when it loads)
-  const headGroup = new THREE.Group();
-  headGroup.position.y = 3.45;
-  group.add(headGroup);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.58, 24, 24), skinMat);
-  head.name = 'primitiveHead';
-  head.scale.set(1, 1.05, 1);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 1.8, 16), shirtMat);
+  torso.position.y = 1.7;
+  torso.castShadow = true;
+  fallback.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), skinMat);
+  head.position.y = 2.85;
   head.castShadow = true;
-  headGroup.add(head);
-  loadHarryHead(headGroup);
-
-  // Ears
-  for (const ex of [-0.55, 0.55]) {
-    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), skinMat);
-    ear.position.set(ex, 3.45, 0);
-    group.add(ear);
+  fallback.add(head);
+  const legGeo = new THREE.CylinderGeometry(0.16, 0.15, 1.3, 12);
+  for (const lx of [-0.28, 0.28]) {
+    const leg = new THREE.Mesh(legGeo, pantMat);
+    leg.position.set(lx, 0.65, 0);
+    leg.castShadow = true;
+    fallback.add(leg);
   }
+  group.add(fallback);
 
-  // Nose
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), new THREE.MeshStandardMaterial({ color: 0xeac0a0, roughness: 0.6 }));
-  nose.position.set(0, 3.42, 0.55);
-  group.add(nose);
-
-  // White hair — sculpted clumps around the back and sides
-  for (let i = 0; i < 10; i++) {
-    const angle = (i / 10) * Math.PI * 2;
-    const rx = Math.cos(angle) * 0.52;
-    const rz = Math.sin(angle) * 0.48;
-    const clump = new THREE.Mesh(new THREE.SphereGeometry(0.16 + Math.random() * 0.06, 10, 10), whiteMat);
-    clump.position.set(rx, 3.75 + Math.random() * 0.12, rz * 0.7 - 0.05);
-    group.add(clump);
-  }
-  // Sideburns
-  for (const ex of [-0.45, 0.45]) {
-    const sideburnGroup = new THREE.Group();
-    const sideburnCore = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.35, 8), whiteMat);
-    sideburnCore.position.y = 0;
-    sideburnGroup.add(sideburnCore);
-    const sideburnTop = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), whiteMat);
-    sideburnTop.position.y = 0.175;
-    sideburnGroup.add(sideburnTop);
-    const sideburnBot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), whiteMat);
-    sideburnBot.position.y = -0.175;
-    sideburnGroup.add(sideburnBot);
-    sideburnGroup.position.set(ex, 3.55, 0.15);
-    group.add(sideburnGroup);
-  }
-
-  // Flat cap
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.16, 24), capMat);
-  cap.position.y = 3.95;
-  cap.castShadow = true;
-  group.add(cap);
-  const capBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.05, 24), capMat);
-  capBrim.position.set(0, 3.86, 0.15);
-  capBrim.scale.set(1, 1, 0.75);
-  capBrim.castShadow = true;
-  group.add(capBrim);
-
-  // Round glasses
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.4, metalness: 0.3 });
-  const lensMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, roughness: 0.1 });
-  for (const ex of [-0.17, 0.17]) {
-    const frame = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.022, 8, 16), frameMat);
-    frame.position.set(ex, 3.52, 0.53);
-    frame.rotation.y = 0.05 * Math.sign(ex);
-    group.add(frame);
-    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.11, 16), lensMat);
-    lens.position.set(ex, 3.52, 0.56);
-    lens.rotation.y = 0.05 * Math.sign(ex);
-    group.add(lens);
-  }
-  const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.16, 8), frameMat);
-  bridge.rotation.z = Math.PI / 2;
-  bridge.position.set(0, 3.52, 0.55);
-  group.add(bridge);
-
-  // Mustache
-  const stache = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 8), whiteMat);
-  stache.rotation.z = Math.PI / 2;
-  stache.position.set(0, 3.22, 0.56);
-  group.add(stache);
-
-  // Eyes
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
-  for (const ex of [-0.17, 0.17]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), eyeMat);
-    eye.position.set(ex, 3.55, 0.5);
-    group.add(eye);
-  }
-
-  // Arms and hands
-  const armGeo = new THREE.CylinderGeometry(0.15, 0.14, 1.35, 12);
-  const handGeo = new THREE.SphereGeometry(0.14, 10, 10);
-  const leftArm = new THREE.Mesh(armGeo, shirtMat);
-  leftArm.position.set(-0.78, 1.95, 0.15);
-  leftArm.rotation.z = 0.25;
-  leftArm.castShadow = true;
-  group.add(leftArm);
-  const leftHand = new THREE.Mesh(handGeo, skinMat);
-  leftHand.position.set(-0.92, 1.25, 0.15);
-  group.add(leftHand);
-
-  const rightArm = new THREE.Mesh(armGeo, shirtMat);
-  rightArm.position.set(0.78, 1.95, 0.15);
-  rightArm.rotation.z = -0.25;
-  rightArm.castShadow = true;
-  group.add(rightArm);
-  const rightHand = new THREE.Mesh(handGeo, skinMat);
-  rightHand.position.set(0.92, 1.25, 0.15);
-  group.add(rightHand);
-
-  // Cane in right hand
-  const caneShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.8, 8), woodMat);
-  caneShaft.position.set(1.05, 1.4, 0.45);
-  caneShaft.rotation.x = 0.1;
-  caneShaft.castShadow = true;
-  group.add(caneShaft);
-  const caneHandle = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.035, 8, 16), woodMat);
-  caneHandle.position.set(1.05, 2.8, 0.45);
-  caneHandle.rotation.y = Math.PI / 2;
-  group.add(caneHandle);
-
-  // Boplist scroll in left hand
+  // Boplist scroll in left hand (kept as a separate prop)
   const scroll = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.0, 0.07), new THREE.MeshStandardMaterial({ color: 0xfff8dc }));
-  scroll.position.set(-0.95, 1.55, 0.4);
+  scroll.position.set(-0.7, 1.4, 0.4);
   scroll.rotation.x = -0.3;
   scroll.rotation.y = 0.2;
+  scroll.castShadow = true;
   group.add(scroll);
 
-  // Legs
-  const legGeo = new THREE.CylinderGeometry(0.2, 0.18, 1.25, 12);
-  for (const lx of [-0.32, 0.32]) {
-    const leg = new THREE.Mesh(legGeo, pantMat);
-    leg.position.set(lx, 0.62, 0);
-    leg.castShadow = true;
-    group.add(leg);
-  }
-
-  // Shoes
-  const shoeGeo = new THREE.BoxGeometry(0.38, 0.18, 0.65);
-  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
-  for (const sx of [-0.32, 0.32]) {
-    const shoe = new THREE.Mesh(shoeGeo, shoeMat);
-    shoe.position.set(sx, 0.09, 0.12);
-    shoe.castShadow = true;
-    group.add(shoe);
-  }
-
-  group.scale.set(1.45, 1.45, 1.45);
+  loadHarryGLB(group);
   return group;
 }
 
-function loadHarryHead(headGroup) {
-  if (!headGroup) return;
-  if (typeof THREE === 'undefined' || typeof THREE.OBJLoader !== 'function') return;
-  const loader = new THREE.OBJLoader();
+function loadHarryGLB(group) {
+  if (!group) return;
+  if (typeof THREE === 'undefined' || typeof THREE.GLTFLoader !== 'function') return;
+  const loader = new THREE.GLTFLoader();
   const timeout = setTimeout(() => {
-    showError('Harry head OBJ load timed out; using primitive head.');
-  }, 8000);
-  loader.load('models/harry/man_bust.obj', function(obj) {
+    showError('Harry GLB load timed out; using fallback figure.');
+  }, 20000);
+  loader.load('models/harry/old_man_cartoon.glb', function(gltf) {
     clearTimeout(timeout);
-    if (!scene || !headGroup) return;
-    obj.traverse(child => {
+    if (!scene || !group) return;
+    const model = gltf.scene;
+    model.traverse(child => {
       if (child.isMesh) {
-        child.material = new THREE.MeshStandardMaterial({ color: 0xf5cda2, roughness: 0.6 });
         child.castShadow = true;
+        child.receiveShadow = true;
       }
     });
-    const box = new THREE.Box3().setFromObject(obj);
+    const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
     box.getSize(size);
-    const targetHeight = 1.2;
-    const s = (size.y > 0.001) ? targetHeight / size.y : 0.012;
-    obj.scale.set(s, s, s);
-    obj.rotation.y = Math.PI;
-    obj.position.set(0, -0.5, 0);
-    const prim = headGroup.getObjectByName('primitiveHead');
-    if (prim) headGroup.remove(prim);
-    headGroup.add(obj);
-    harryHeadMesh = obj;
+    const targetHeight = 3.2;
+    const s = (size.y > 0.001) ? targetHeight / size.y : 0.01;
+    model.scale.set(s, s, s);
+    // Center the model horizontally and put its feet at y=0
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    model.position.set(-center.x * s, -box.min.y * s, -center.z * s);
+
+    const fallback = group.getObjectByName('harryFallback');
+    if (fallback) group.remove(fallback);
+    group.add(model);
+    harryGLBMesh = model;
+
+    // Play the first animation if present
+    if (gltf.animations && gltf.animations.length) {
+      const mixer = new THREE.AnimationMixer(model);
+      mixer.clipAction(gltf.animations[0]).play();
+      harryAnimMixers.push(mixer);
+    }
   }, undefined, function(err) {
     clearTimeout(timeout);
-    showError('Failed to load Harry OBJ: ' + (err && err.message ? err.message : String(err)));
+    showError('Failed to load Harry GLB: ' + (err && err.message ? err.message : String(err)));
   });
 }
 
@@ -2406,7 +2275,7 @@ function callHarry() {
 
 // Game logic
 function update() {
-  if (state !== 'playing') return;
+  if (state !== 'playing') return 0;
   frameCount++;
   const dt = clock.getDelta();
 
@@ -3546,7 +3415,12 @@ function getAIStatusText() {
 // Render loop
 function animate() {
   requestAnimationFrame(animate);
-  update();
+  const dt = update();
+
+  // Update Harry GLB animations
+  if (harryAnimMixers.length && dt) {
+    harryAnimMixers.forEach(m => m.update(dt));
+  }
 
   // Update sniff line
   if (wombat.sniffActive > 0 && wombat.mesh) {
